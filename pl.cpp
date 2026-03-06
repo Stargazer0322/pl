@@ -27,8 +27,10 @@ enum Error_Type {
 struct Token {
     Token_Type type;
     variant<int, float, string> value;
-    
-    Token(Token_Type t, variant<int, float, string> v) : type(t), value(v) {}
+    int line;
+    int column;
+    int length;
+    Token(Token_Type t, variant<int, float, string> v, int l, int c, int len) : type(t), value(v), line(l), column(c), length(len){}
 };
 
 
@@ -79,60 +81,64 @@ private:
         return dot_count == 1 && digit_count > 0;
     }
 
-    void SortToken(string token) {
+    void SortToken(string token, int line, int column) {
         if (token == "") {
             return;
         }
-
+        int length = token.length();
         if (token == ".") {
-            tokens.push_back(Token(Dot, token));
+            tokens.push_back(Token(Dot, token, line, column, length));
         } else if (token == "(") {
-            tokens.push_back(Token(LeftParen, token));
+            tokens.push_back(Token(LeftParen, token, line, column, length));
         } else if (token == ")") {
-            tokens.push_back(Token(RightParen, token));
+            tokens.push_back(Token(RightParen, token, line, column, length));
         } else if (token == "'") {
-            tokens.push_back(Token(Quote, token));
+            tokens.push_back(Token(Quote, token, line, column, length));
         } else if (token[0] == ';') {
-            tokens.push_back(Token(LineComment, token));
+            tokens.push_back(Token(LineComment, token, line, column, length));
         } else if (token[0] == '"') {
-            tokens.push_back(Token(String, token));
+            tokens.push_back(Token(String, token, line, column, length));
         } else if (token == "nil" || token == "#f") {
-            tokens.push_back(Token(Nil, token));
+            tokens.push_back(Token(Nil, token, line, column, length));
         } else if (token == "t" || token == "#t") {
-            tokens.push_back(Token(T, token));
+            tokens.push_back(Token(T, token, line, column, length));
         } else if (IsNumber(token)) {
             int num = stoi(token);
-            tokens.push_back(Token(Int, num));
+            tokens.push_back(Token(Int, num, line, column, length));
         } else if (IsFloat(token)) {
             float num = stof(token);
-            tokens.push_back(Token(Float, num));
+            tokens.push_back(Token(Float, num, line, column, length));
         } else {
-            tokens.push_back(Token(Symbol, token));
+            tokens.push_back(Token(Symbol, token, line, column, length));
         }
     }
 
     void CutToken() {
         string token = "";
+        int line = 1;
+        int column = 1;
         for (int i = 0; i < exp.length(); i++) {
             char c = exp[i];
             if (c == ' ' || c == '\t' || c == '\n' ){
-                SortToken(token);
+                SortToken(token, line, column);
                 token = "";
             } else if (c == '(' && exp[i + 1] == ')') {
-                SortToken(token);
-                SortToken("nil");
+                SortToken(token, line, column);
+                SortToken("nil", line, column);
                 token = "";
                 i++;
             } else if (c == '(' || c == ')' || c == '\'') {
-                SortToken(token);
-                SortToken(string(1, c));
+                SortToken(token, line, column);
+                SortToken(string(1, c), line, column);
                 token = "";
             } else if (c == '"') {
-                SortToken(token);
+                SortToken(token, line, column);
                 for (int j = i + 1; j < exp.length();) {
                     size_t end = exp.find('"', j);
                     if (end == string::npos) {
                         PrintError(no_closing_quote);
+                        line = 1;
+                        column = 1;
                         i = exp.length();
                         break;
                     }
@@ -164,20 +170,25 @@ private:
                         }
                     }
                 }
-                SortToken(token);
+                SortToken(token, line, column);
                 token = "";
             } else if (c == ';') {
-                SortToken(token);
+                SortToken(token, line, column);
                 token = exp.substr(exp.find(";"));
-                SortToken(token);
+                SortToken(token, line, column);
                 token = "";
                 break;
             } else {
                 token += c;
             }
+            column++;
+            if (c == '\n') {
+                line++;
+                column = 1;
+            }
         }
         if (token != "") {
-            SortToken(token);
+            SortToken(token, line, column);
         }
     }
 
