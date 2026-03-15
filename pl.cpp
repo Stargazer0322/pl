@@ -74,13 +74,14 @@ void FreeTree(Node* node) {
 
 // =========================================================================
 // Scanner 類別 (Lexer)
-// 負責讀取字元並切分成 Token 串流
 // =========================================================================
 class Scanner {
 private:
     string line_str;
-    int line = 0;
-    int col = 1;
+    int physical_line = 0;       // 追蹤實際讀取的實體行數
+    int start_physical_line = 0; // 追蹤上一個 S-exp 結束時所在的實體行數
+    int logical_line = 1;        // 要印出來的邏輯行號
+    int logical_col = 1;         // 要印出來的邏輯欄位
     int pos = 0;
     bool eof_reached = false;
 
@@ -90,9 +91,8 @@ private:
             eof_reached = true;
             return;
         }
-        line_str += '\n'; // 補回換行字元，方便錯誤判定與字串處理
-        line++;
-        col = 1;
+        line_str += '\n'; // 補回換行字元
+        physical_line++;
         pos = 0;
     }
 
@@ -126,7 +126,7 @@ private:
         return (dot_count == 1 && digit_count > 0);
     }
 
-    // 處理字串內的跳脫字元 (將 \n, \t 轉換為實際的控制字元)
+    // 處理字串內的跳脫字元
     string ProcessString(string raw) {
         string res = "";
         for (int i = 0; i < raw.length(); i++) {
@@ -146,9 +146,22 @@ private:
     }
 
 public:
-    Scanner() { LoadNextLine(); }
+    bool is_new_sexp = true; // 標記是否正在等待新的 S-exp 的第一個字元
 
-    // 發生錯誤時，將游標移到行尾，達到「整行忽略」的效果
+    Scanner() { 
+        LoadNextLine(); 
+        ReadyForNewSExp(); 
+    }
+
+    // 當一個 S-exp 讀取完畢，準備迎接下一個時呼叫
+    void ReadyForNewSExp() {
+        is_new_sexp = true;
+        start_physical_line = physical_line; // 紀錄上一個 S-exp 結束在哪個實體行
+        logical_line = 1;
+        logical_col = 1;
+    }
+
+    // 放棄這整行 (發生 error 時)
     void DiscardRestOfLine() {
         pos = line_str.length();
     }
@@ -164,55 +177,79 @@ public:
 
             char c = line_str[pos];
 
-            // 1. 跳過空白字元
+            // 1. 跳過空白字元與換行
             if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-                pos++; col++;
+                if (c == '\n') {
+                    // 最關鍵的邏輯：只有當換行不是發生在上一個 S-exp 結束的那一行時，才增加邏輯行號
+                    if (is_new_sexp) {
+                        if (physical_line != start_physical_line) {
+                            logical_line++;
+                        }
+                    } else {
+                        logical_line++;
+                    }
+                    logical_col = 1; // 換行後 Column 永遠歸 1
+                } else {
+                    logical_col++; // 空格/Tab 只增加 Column
+                }
+                pos++;
                 continue;
             }
 
-            // 2. 跳過註解 (直接忽略到行尾)
+            // 2. 跳過註解 (直到遇到換行，但不吃掉換行，留給下一輪迴圈處理 Column 重置)
             if (c == ';') {
-                pos = line_str.length();
-                continue;
+                while (pos < line_str.length() && line_str[pos] != '\n') {
+                    pos++;
+                    logical_col++;
+                }
+                continue; 
             }
 
-            int start_col = col;
+            // --- 程式跑到這裡，代表遇到了「有效字元 (Token)」 ---
+            
+            // 如果還在等待新 S-exp，現在正式鎖定第一行！
+            if (is_new_sexp) {
+                is_new_sexp = false;
+            }
+
+            int start_col = logical_col;
+            int start_line = logical_line;
 
             // 3. 處理單一字元 Token
-            if (c == '(') { pos++; col++; return Token(LeftParen, "(", line, start_col); }
-            if (c == ')') { pos++; col++; return Token(RightParen, ")", line, start_col); }
-            if (c == '\'') { pos++; col++; return Token(Quote, "'", line, start_col); }
+            if (c == '(') { pos++; logical_col++; return Token(LeftParen, "(", start_line, start_col); }
+            if (c == ')') { pos++; logical_col++; return Token(RightParen, ")", start_line, start_col); }
+            if (c == '\'') { pos++; logical_col++; return Token(Quote, "'", start_line, start_col); }
 
             // 4. 處理字串 (String)
             if (c == '"') {
                 string raw = "\"";
-                pos++; col++;
+                pos++; logical_col++;
                 bool closed = false;
                 while (pos < line_str.length()) {
                     char sc = line_str[pos];
                     if (sc == '\n' || sc == '\r') {
-                        // 遇到換行仍未閉合，丟出錯誤
-                        throw ParseError(no_closing_quote, line, col, "");
+                        // 字串未閉合錯誤：回傳讀到換行時的 logical_line 與 logical_col
+                        throw ParseError(no_closing_quote, logical_line, logical_col, "");
                     }
                     if (sc == '\\') {
-                        raw += sc; pos++; col++;
+                        raw += sc; pos++; logical_col++;
                         if (pos < line_str.length() && line_str[pos] != '\n' && line_str[pos] != '\r') {
-                            raw += line_str[pos]; pos++; col++;
+                            raw += line_str[pos]; pos++; logical_col++;
                         }
                         continue;
                     }
                     if (sc == '"') {
-                        raw += '"'; pos++; col++;
+                        raw += '"'; pos++; logical_col++;
                         closed = true;
                         break;
                     }
-                    raw += sc; pos++; col++;
+                    raw += sc; pos++; logical_col++;
                 }
-                if (!closed) throw ParseError(no_closing_quote, line, col, "");
-                return Token(String, ProcessString(raw), line, start_col);
+                if (!closed) throw ParseError(no_closing_quote, logical_line, logical_col, "");
+                return Token(String, ProcessString(raw), start_line, start_col);
             }
 
-            // 5. 處理連續字元 (讀取到分隔符號為止)
+            // 5. 處理連續字元 Token
             string seq = "";
             while (pos < line_str.length()) {
                 char sc = line_str[pos];
@@ -221,25 +258,22 @@ public:
                     break;
                 }
                 seq += sc;
-                pos++; col++;
+                pos++; logical_col++;
             }
 
-            // 判斷該連續字元屬於哪一種 Token
-            if (seq == ".") return Token(Dot, ".", line, start_col);
-            if (seq == "t" || seq == "#t") return Token(T, "#t", line, start_col);
-            if (seq == "nil" || seq == "#f" || seq == "()") return Token(Nil, "nil", line, start_col);
+            if (seq == ".") return Token(Dot, ".", start_line, start_col);
+            if (seq == "t" || seq == "#t") return Token(T, "#t", start_line, start_col);
+            if (seq == "nil" || seq == "#f" || seq == "()") return Token(Nil, "nil", start_line, start_col);
+            if (IsInt(seq)) return Token(Int, seq, start_line, start_col);
+            if (IsFloat(seq)) return Token(Float, seq, start_line, start_col);
 
-            if (IsInt(seq)) return Token(Int, seq, line, start_col);
-            if (IsFloat(seq)) return Token(Float, seq, line, start_col);
-
-            return Token(Symbol, seq, line, start_col);
+            return Token(Symbol, seq, start_line, start_col);
         }
     }
 };
 
 // =========================================================================
 // Parser 類別 (語法分析器)
-// 負責將 Token 串流組合成 S-expression 樹狀結構
 // =========================================================================
 class Parser {
 private:
@@ -264,27 +298,25 @@ private:
     }
 
 public:
-    void DiscardLine() {
-        scanner.DiscardRestOfLine();
-        has_peek = false; // 偷看的 token 也因為在那一行所以要丟棄
+    void ReadyForNewSExp() {
+        scanner.ReadyForNewSExp();
     }
 
-    // 遞迴讀取一個完整的 S-exp
+    void DiscardLine() {
+        scanner.DiscardRestOfLine();
+        has_peek = false; 
+    }
+
     Node* ReadSExp() {
         Token t = GetNext();
         if (t.type == EndOfFile) throw ParseError(no_more_input, -1, -1, "");
 
-        // 句首不能是 ')' 或 '.' 
         if (t.type == RightParen || t.type == Dot) {
             throw ParseError(unexpected_token_atom, t.line, t.col, t.str_value);
         }
 
-        // 如果是 '('，就開始解析 List
-        if (t.type == LeftParen) {
-            return ReadList();
-        }
+        if (t.type == LeftParen) return ReadList();
 
-        // 如果是單引號 '，將其轉換為 (quote S-exp)
         if (t.type == Quote) {
             Node* inner = ReadSExp();
             Node* q = new Node(Token(Symbol, "quote", t.line, t.col));
@@ -292,26 +324,22 @@ public:
             return new Node(q, pair2);
         }
 
-        // 否則為一般的 Atom
         return new Node(t);
     }
 
-    // 遞迴讀取 List 的內部元素
     Node* ReadList() {
         Token t = PeekNext();
         if (t.type == EndOfFile) throw ParseError(no_more_input, -1, -1, "");
 
-        // 遇到 ')' 代表 List 正常結束，回傳 nil
         if (t.type == RightParen) {
-            GetNext(); // 消耗掉 ')'
+            GetNext();
             return new Node(Token(Nil, "nil", t.line, t.col));
         }
 
-        // 遇到 '.' 代表這是一個 Dotted Pair
         if (t.type == Dot) {
-            GetNext(); // 消耗掉 '.'
-            Node* snn = ReadSExp(); // Dot 後面接一個 S-exp
-            Token p = GetNext();    // 然後必須馬上接 ')'
+            GetNext();
+            Node* snn = ReadSExp();
+            Token p = GetNext();
             if (p.type != RightParen) {
                 if (p.type == EndOfFile) throw ParseError(no_more_input, -1, -1, "");
                 throw ParseError(unexpected_token_paren, p.line, p.col, p.str_value);
@@ -319,7 +347,6 @@ public:
             return snn;
         }
 
-        // 繼續讀取目前的節點，然後遞迴讀取剩下的 List
         Node* left = ReadSExp();
         Node* right = ReadList();
         return new Node(left, right);
@@ -348,7 +375,7 @@ void PrintSExp(Node* node, int M) {
         else cout << get<string>(t.value) << "\n"; // Symbol 或 String
     } else {
         // 這是一個 Pair (括號結構)
-        cout << "(";
+        cout << "( ";
         PrintSExp(node->left, M + 1); // 第一個元素不加 M+2 空格
 
         Node* curr = node->right;
@@ -389,6 +416,7 @@ int main() {
     while (true) {
         cout << "\n> ";
         try {
+            parser.ReadyForNewSExp();
             Node* root = parser.ReadSExp();
             
             // 處理 (exit)
