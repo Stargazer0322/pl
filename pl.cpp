@@ -72,9 +72,7 @@ void FreeTree(Node* node) {
     delete node;
 }
 
-// =========================================================================
 // Scanner 類別 (Lexer)
-// =========================================================================
 class Scanner {
 private:
     string line_str;
@@ -180,7 +178,7 @@ public:
             // 1. 跳過空白字元與換行
             if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
                 if (c == '\n') {
-                    // 最關鍵的邏輯：只有當換行不是發生在上一個 S-exp 結束的那一行時，才增加邏輯行號
+                    // 只有當換行不是發生在上一個 S-exp 結束的那一行時，才增加邏輯行號
                     if (is_new_sexp) {
                         if (physical_line != start_physical_line) {
                             logical_line++;
@@ -204,10 +202,8 @@ public:
                 }
                 continue; 
             }
-
-            // --- 程式跑到這裡，代表遇到了「有效字元 (Token)」 ---
             
-            // 如果還在等待新 S-exp，現在正式鎖定第一行！
+            // 如果還在等待新 S-exp，鎖定第一行
             if (is_new_sexp) {
                 is_new_sexp = false;
             }
@@ -223,7 +219,8 @@ public:
             // 4. 處理字串 (String)
             if (c == '"') {
                 string raw = "\"";
-                pos++; logical_col++;
+                pos++; 
+                logical_col++;
                 bool closed = false;
                 while (pos < line_str.length()) {
                     char sc = line_str[pos];
@@ -232,18 +229,26 @@ public:
                         throw ParseError(no_closing_quote, logical_line, logical_col, "");
                     }
                     if (sc == '\\') {
-                        raw += sc; pos++; logical_col++;
+                        raw += sc; 
+                        pos++; 
+                        logical_col++;
                         if (pos < line_str.length() && line_str[pos] != '\n' && line_str[pos] != '\r') {
-                            raw += line_str[pos]; pos++; logical_col++;
+                            raw += line_str[pos]; 
+                            pos++; 
+                            logical_col++;
                         }
                         continue;
                     }
                     if (sc == '"') {
-                        raw += '"'; pos++; logical_col++;
+                        raw += '"'; 
+                        pos++; 
+                        logical_col++;
                         closed = true;
                         break;
                     }
-                    raw += sc; pos++; logical_col++;
+                    raw += sc; 
+                    pos++; 
+                    logical_col++;
                 }
                 if (!closed) throw ParseError(no_closing_quote, logical_line, logical_col, "");
                 return Token(String, ProcessString(raw), start_line, start_col);
@@ -258,7 +263,8 @@ public:
                     break;
                 }
                 seq += sc;
-                pos++; logical_col++;
+                pos++; 
+                logical_col++;
             }
 
             if (seq == ".") return Token(Dot, ".", start_line, start_col);
@@ -272,9 +278,8 @@ public:
     }
 };
 
-// =========================================================================
+
 // Parser 類別 (語法分析器)
-// =========================================================================
 class Parser {
 private:
     Scanner scanner;
@@ -315,7 +320,13 @@ public:
             throw ParseError(unexpected_token_atom, t.line, t.col, t.str_value);
         }
 
-        if (t.type == LeftParen) return ReadList();
+        if (t.type == LeftParen) {
+            Token p = PeekNext();
+            if (p.type == Dot) {
+                throw ParseError(unexpected_token_atom, p.line, p.col, p.str_value);
+            }
+            return ReadList();
+        }
 
         if (t.type == Quote) {
             Node* inner = ReadSExp();
@@ -353,9 +364,6 @@ public:
     }
 };
 
-// =========================================================================
-// 系統核心與列印功能
-// =========================================================================
 
 // 印出空白的輔助函式
 void PrintSpace(int num) {
@@ -376,7 +384,7 @@ void PrintSExp(Node* node, int M) {
     } else {
         // 這是一個 Pair (括號結構)
         cout << "( ";
-        PrintSExp(node->left, M + 1); // 第一個元素不加 M+2 空格
+        PrintSExp(node->left, M + 2);
 
         Node* curr = node->right;
         while (curr != nullptr && !curr->is_atom) {
@@ -387,11 +395,14 @@ void PrintSExp(Node* node, int M) {
 
         if (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
             // 如果右結尾不是 nil，表示有 Dotted pair
-            PrintSpace(M + 2); cout << ".\n";
-            PrintSpace(M + 2); PrintSExp(curr, M + 2);
+            PrintSpace(M + 2);
+            cout << ".\n";
+            PrintSpace(M + 2);
+            PrintSExp(curr, M + 2);
         }
 
-        PrintSpace(M); cout << ")\n";
+        PrintSpace(M);
+        cout << ")\n";
     }
 }
 
@@ -428,7 +439,7 @@ int main() {
 
             // 列印樹狀結構
             PrintSExp(root, 0);
-            FreeTree(root); // 釋放記憶體
+            FreeTree(root); 
 
         } catch (ParseError& e) {
             // 捕捉各種剖析錯誤並印出相應訊息
