@@ -365,6 +365,34 @@ public:
 };
 
 
+class Evaluator {
+private:
+
+public:
+    void Eval(Node* root) {
+        if (root == nullptr) return;
+        if (root->is_atom) {
+            Token t = root->token;
+            if (t.type == Symbol) {
+                if (t.str_value == "define") {
+                    if (root->right->is_atom) {
+                        if (root->right->token.type == Symbol) {
+                            
+                        } else {
+                            throw ParseError(unexpected_token_atom, t.line, t.col, t.str_value);
+                        }
+                    } else {
+                        throw ParseError(unexpected_token_atom, t.line, t.col, t.str_value);
+                    }
+                }
+            }
+        } else {
+            Eval(root->left);
+            Eval(root->right);
+        }
+    }    
+};
+
 // 印出空白的輔助函式
 void PrintSpace(int num) {
     for (int i = 0; i < num; i++) cout << ' ';
@@ -423,6 +451,7 @@ int main() {
     string whatever;
     getline(cin, whatever);
     Parser parser;
+    Evaluator evaluator;
     cout << "Welcome to OurScheme!\n";
     while (true) {
         cout << "\n> ";
@@ -436,6 +465,8 @@ int main() {
                 cout << "\nThanks for using OurScheme!\n";
                 break;
             }
+
+            evaluator.
 
             // 列印樹狀結構
             PrintSExp(root, 0);
