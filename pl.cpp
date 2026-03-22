@@ -367,6 +367,29 @@ public:
 
 class Evaluator {
 private:
+    void HandleDefine(Node* exp) {
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            // TODO: 處理錯誤 (例如只有 (define) 或無效語法)
+            return;
+        }
+
+        Node* var_node = args->left;
+        if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) {
+            // TODO: 處理錯誤 (define 的第一個參數不是 Symbol)
+            return;
+        }
+
+        Node* val_list = args->right;
+        if (val_list == nullptr || val_list->is_atom) {
+            // TODO: 處理錯誤 (缺少 value 參數)
+            return;
+        }
+
+        Node* val_node = val_list->left;
+        // TODO: 1. 計算 val_node 的值 (例如呼叫 Eval(val_node))
+        //       2. 將求值結果與變數名稱 var_node->token.str_value 存入環境 (Environment) 中
+    }
 
 public:
     void Eval(Node* root) {
@@ -374,19 +397,15 @@ public:
         if (root->is_atom) {
             Token t = root->token;
             if (t.type == Symbol) {
-                if (t.str_value == "define") {
-                    if (root->right->is_atom) {
-                        if (root->right->token.type == Symbol) {
-                            
-                        } else {
-                            throw ParseError(unexpected_token_atom, t.line, t.col, t.str_value);
-                        }
-                    } else {
-                        throw ParseError(unexpected_token_atom, t.line, t.col, t.str_value);
-                    }
-                }
+                // TODO: 變數查詢，從環境變數中找到綁定的值並回傳/印出
             }
         } else {
+            if (root->left && root->left->is_atom && root->left->token.type == Symbol) {
+                if (root->left->token.str_value == "define") {
+                    HandleDefine(root);
+                    return; // 處理完 define 就直接返回
+                }
+            }
             Eval(root->left);
             Eval(root->right);
         }
@@ -447,6 +466,19 @@ bool IsExit(Node* root) {
     return false;
 }
 
+// 檢查是否為 (clean-environment) 指令
+bool IsClearEnvironment(Node* root) {
+    if (!root) return false;
+    if (!root->is_atom) {
+        if (root->left && root->left->is_atom && root->left->token.type == Symbol && get<string>(root->left->token.value) == "clean-environment") {
+            if (root->right && root->right->is_atom && root->right->token.type == Nil) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 int main() {
     string whatever;
     getline(cin, whatever);
@@ -466,7 +498,14 @@ int main() {
                 break;
             }
 
-            evaluator.
+            // 處理 (clean-environment)
+            if (IsClearEnvironment(root)) {
+                cout << "\nenvironment cleaned\n";
+                FreeTree(root);
+                continue;
+            }
+
+            evaluator.Eval(root);
 
             // 列印樹狀結構
             PrintSExp(root, 0);
