@@ -5,6 +5,7 @@
 #include <variant>
 #include <stdexcept>
 #include <cstdio>
+#include <map>
 
 using namespace std;
 
@@ -20,7 +21,8 @@ enum Error_Type {
     no_closing_quote,
     no_more_input,
     unexpected_token_atom,  // 預期要 Atom 或 '('
-    unexpected_token_paren  // 預期要 ')'
+    unexpected_token_paren,  // 預期要 ')'
+    define_format
 };
 
 // 記錄錯誤的 Exception 結構
@@ -29,19 +31,19 @@ struct ParseError : public exception {
     int line;
     int col;
     string token_str;
-    ParseError(Error_Type t, int l, int c, string s) : type(t), line(l), col(c), token_str(s) {}
+    ParseError(Error_Type t, int l, int c, string s, Node* r = nullptr) : type(t), line(l), col(c), token_str(s){}
 };
 
 // Token 結構
 struct Token {
     Token_Type type;
-    string str_value;
+    string original_value;
     int line;
     int col;
     variant<int, float, string> value;
 
     Token() : type(ErrorToken), line(0), col(0) {}
-    Token(Token_Type t, string s, int l, int c) : type(t), str_value(s), line(l), col(c) {
+    Token(Token_Type t, string s, int l, int c) : type(t), original_value(s), line(l), col(c) {
         if (t == Int) value = stoi(s);
         else if (t == Float) value = stof(s);
         else value = s;
@@ -317,13 +319,13 @@ public:
         if (t.type == EndOfFile) throw ParseError(no_more_input, -1, -1, "");
 
         if (t.type == RightParen || t.type == Dot) {
-            throw ParseError(unexpected_token_atom, t.line, t.col, t.str_value);
+            throw ParseError(unexpected_token_atom, t.line, t.col, t.original_value);
         }
 
         if (t.type == LeftParen) {
             Token p = PeekNext();
             if (p.type == Dot) {
-                throw ParseError(unexpected_token_atom, p.line, p.col, p.str_value);
+                throw ParseError(unexpected_token_atom, p.line, p.col, p.original_value);
             }
             return ReadList();
         }
@@ -353,7 +355,7 @@ public:
             Token p = GetNext();
             if (p.type != RightParen) {
                 if (p.type == EndOfFile) throw ParseError(no_more_input, -1, -1, "");
-                throw ParseError(unexpected_token_paren, p.line, p.col, p.str_value);
+                throw ParseError(unexpected_token_paren, p.line, p.col, p.original_value);
             }
             return snn;
         }
@@ -367,16 +369,19 @@ public:
 
 class Evaluator {
 private:
-    void HandleDefine(Node* exp) {
+    map<string, string> environment;
+
+
+    bool HandleDefine(Node* exp) {
         Node* args = exp->right;
-        if (args == nullptr || args->is_atom) {
-            // TODO: 處理錯誤 (例如只有 (define) 或無效語法)
+        if (args == nullptr || args->is_atom) { // 錯誤情況
+            throw ParseError(define_format, 0, 0, "0", exp);
             return;
         }
 
         Node* var_node = args->left;
         if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) {
-            // TODO: 處理錯誤 (define 的第一個參數不是 Symbol)
+            throw ParseError(define_format, 0, 0, "0", exp);
             return;
         }
 
@@ -388,7 +393,7 @@ private:
 
         Node* val_node = val_list->left;
         // TODO: 1. 計算 val_node 的值 (例如呼叫 Eval(val_node))
-        //       2. 將求值結果與變數名稱 var_node->token.str_value 存入環境 (Environment) 中
+        //       2. 將求值結果與變數名稱 var_node->token.original_value 存入環境 (Environment) 中
     }
 
 public:
@@ -399,11 +404,14 @@ public:
             if (t.type == Symbol) {
                 // TODO: 變數查詢，從環境變數中找到綁定的值並回傳/印出
             }
+            if (t.type == Nil) {
+                return;
+            }
         } else {
             if (root->left && root->left->is_atom && root->left->token.type == Symbol) {
-                if (root->left->token.str_value == "define") {
+                if (get<string>(root->left->token.value) == "define") {
                     HandleDefine(root);
-                    return; // 處理完 define 就直接返回
+                    return;
                 }
             }
             Eval(root->left);
@@ -487,9 +495,10 @@ int main() {
     cout << "Welcome to OurScheme!\n";
     while (true) {
         cout << "\n> ";
+        Node* root = nullptr;
         try {
             parser.ReadyForNewSExp();
-            Node* root = parser.ReadSExp();
+            root = parser.ReadSExp();
             
             // 處理 (exit)
             if (IsExit(root)) {
@@ -516,6 +525,7 @@ int main() {
             if (e.type == no_more_input) {
                 cout << "ERROR (no more input) : END-OF-FILE encountered\n";
                 cout << "Thanks for using OurScheme!\n";
+                FreeTree(root);
                 break;
             } else if (e.type == no_closing_quote) {
                 cout << "ERROR (no closing quote) : END-OF-LINE encountered at Line " << e.line << " Column " << e.col << "\n";
@@ -526,7 +536,12 @@ int main() {
             } else if (e.type == unexpected_token_paren) {
                 cout << "ERROR (unexpected token) : ')' expected when token at Line " << e.line << " Column " << e.col << " is >>" << e.token_str << "<<\n";
                 parser.DiscardLine();
+            } else if (e.type == define_format) {
+                cout << "ERROR (DEFINE format) : ";
+                PrintSExp(root, 0);
+                parser.DiscardLine();
             }
+            FreeTree(root);
         }
     }
     return 0;
