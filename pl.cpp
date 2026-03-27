@@ -367,14 +367,21 @@ public:
 };
 
 
+// 複製整個樹 (用於將值存入環境變數，避免與指令一起被 FreeTree 釋放)
+Node* CloneTree(Node* node) {
+    if (!node) return nullptr;
+    if (node->is_atom) return new Node(node->token);
+    return new Node(CloneTree(node->left), CloneTree(node->right));
+}
+
 class Evaluator {
 private:
-    map<string, string> environment;
+    map<string, Node*> environment;
 
 
-    bool HandleDefine(Node* exp) {
+    void HandleDefine(Node* exp) {
         Node* args = exp->right;
-        if (args == nullptr || args->is_atom) { // 錯誤情況
+        if (args == nullptr || args->is_atom) {
             throw ParseError(define_format, 0, 0, "0", exp);
             return;
         }
@@ -387,17 +394,24 @@ private:
 
         Node* val_list = args->right;
         if (val_list == nullptr || val_list->is_atom) {
-            // TODO: 處理錯誤 (缺少 value 參數)
+            throw ParseError(define_format, 0, 0, "0", exp);
             return;
         }
 
         Node* val_node = val_list->left;
-        // TODO: 1. 計算 val_node 的值 (例如呼叫 Eval(val_node))
-        //       2. 將求值結果與變數名稱 var_node->token.original_value 存入環境 (Environment) 中
+        // 1. 計算 val_node 的實際值
+        Node* evaluated_val = Eval(val_node);
+        
+        // 2. 存入環境變數。使用 CloneTree 避免與當前語法樹一同被釋放
+        string var_name = get<string>(var_node->token.value);
+        if (environment.count(var_name)) FreeTree(environment[var_name]); // 清理舊值避免 Memory Leak
+        environment[var_name] = CloneTree(evaluated_val);
+        
+        cout << var_name << " defined\n";
     }
 
 public:
-    void Eval(Node* root) {
+    Node* Eval(Node* root) {
         if (root == nullptr) return;
         if (root->is_atom) {
             Token t = root->token;
