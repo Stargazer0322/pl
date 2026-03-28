@@ -31,7 +31,7 @@ struct ParseError : public exception {
     int line;
     int col;
     string token_str;
-    ParseError(Error_Type t, int l, int c, string s, Node* r = nullptr) : type(t), line(l), col(c), token_str(s){}
+    ParseError(Error_Type t, int l, int c, string s) : type(t), line(l), col(c), token_str(s){}
 };
 
 // Token 結構
@@ -72,6 +72,13 @@ void FreeTree(Node* node) {
         FreeTree(node->right);
     }
     delete node;
+}
+
+// 複製整個樹 (用於將值存入環境變數，避免與指令一起被 FreeTree 釋放)
+Node* CloneTree(Node* node) {
+    if (!node) return nullptr;
+    if (node->is_atom) return new Node(node->token);
+    return new Node(CloneTree(node->left), CloneTree(node->right));
 }
 
 // Scanner 類別 (Lexer)
@@ -367,13 +374,6 @@ public:
 };
 
 
-// 複製整個樹 (用於將值存入環境變數，避免與指令一起被 FreeTree 釋放)
-Node* CloneTree(Node* node) {
-    if (!node) return nullptr;
-    if (node->is_atom) return new Node(node->token);
-    return new Node(CloneTree(node->left), CloneTree(node->right));
-}
-
 class Evaluator {
 private:
     map<string, Node*> environment;
@@ -381,20 +381,20 @@ private:
 
     void HandleDefine(Node* exp) {
         Node* args = exp->right;
-        if (args == nullptr || args->is_atom) {
-            throw ParseError(define_format, 0, 0, "0", exp);
+        if (args == nullptr || args->is_atom) { 
+            throw ParseError(define_format, 0, 0, "0");
             return;
         }
 
         Node* var_node = args->left;
-        if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) {
-            throw ParseError(define_format, 0, 0, "0", exp);
+        if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) { 
+            throw ParseError(define_format, 0, 0, "0");
             return;
         }
 
         Node* val_list = args->right;
         if (val_list == nullptr || val_list->is_atom) {
-            throw ParseError(define_format, 0, 0, "0", exp);
+            throw ParseError(define_format, 0, 0, "0");
             return;
         }
 
@@ -412,25 +412,28 @@ private:
 
 public:
     Node* Eval(Node* root) {
-        if (root == nullptr) return;
+        if (root == nullptr) return nullptr;
         if (root->is_atom) {
             Token t = root->token;
             if (t.type == Symbol) {
-                // TODO: 變數查詢，從環境變數中找到綁定的值並回傳/印出
+                if (environment.count(get<string>(t.value))) {
+                    return environment[get<string>(t.value)];
+                }
             }
             if (t.type == Nil) {
-                return;
+                return nullptr;
             }
         } else {
             if (root->left && root->left->is_atom && root->left->token.type == Symbol) {
                 if (get<string>(root->left->token.value) == "define") {
                     HandleDefine(root);
-                    return;
+                    return nullptr;
                 }
             }
             Eval(root->left);
             Eval(root->right);
         }
+        return nullptr;
     }    
 };
 
@@ -441,6 +444,41 @@ void PrintSpace(int num) {
 
 // Pretty Print 列印 S-exp
 void PrintSExp(Node* node, int M) {
+    if (node == nullptr) return;
+
+    if (node->is_atom) {
+        Token t = node->token;
+        if (t.type == Int) cout << get<int>(t.value) << "\n";
+        else if (t.type == Float) printf("%.3f\n", get<float>(t.value));
+        else if (t.type == Nil) cout << "nil\n";
+        else if (t.type == T) cout << "#t\n";
+        else cout << get<string>(t.value) << "\n"; // Symbol 或 String
+    } else {
+        // 這是一個 Pair (括號結構)
+        cout << "( ";
+        PrintSExp(node->left, M + 2);
+
+        Node* curr = node->right;
+        while (curr != nullptr && !curr->is_atom) {
+            PrintSpace(M + 2);
+            PrintSExp(curr->left, M + 2);
+            curr = curr->right;
+        }
+
+        if (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
+            // 如果右結尾不是 nil，表示有 Dotted pair
+            PrintSpace(M + 2);
+            cout << ".\n";
+            PrintSpace(M + 2);
+            PrintSExp(curr, M + 2);
+        }
+
+        PrintSpace(M);
+        cout << ")\n";
+    }
+}
+
+void PrintEval(Node* node, int M) {
     if (node == nullptr) return;
 
     if (node->is_atom) {
@@ -528,10 +566,11 @@ int main() {
                 continue;
             }
 
-            evaluator.Eval(root);
-
+            Node* temp = evaluator.Eval(root);
+            //printf("%s", temp->token.value);
             // 列印樹狀結構
-            PrintSExp(root, 0);
+            //PrintEval(root, 0);
+            //PrintSExp(root, 0);
             FreeTree(root); 
 
         } catch (ParseError& e) {
