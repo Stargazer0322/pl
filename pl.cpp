@@ -378,8 +378,48 @@ class Evaluator {
 private:
     map<string, Node*> environment;
 
+    Node* Apply(Node* op, Node* args) {
+        if (op->is_atom && op->token.type == Symbol) {
+            string op_name = get<string>(op->token.value);
+            if (op_name == "+") return EvalAdd(args);
+            else if (op_name == "-") return EvalSub(args);
+            else if (op_name == "*") return EvalMul(args);
+            else if (op_name == "/") return EvalDiv(args);
+            else if (op_name == "=") return EvalEqual(args);
+            else if (op_name == "<") return EvalLess(args);
+            else if (op_name == ">") return EvalGreater(args);
+            else if (op_name == "cons") return EvalCons(args);
+            else if (op_name == "car") return EvalCar(args);
+            else if (op_name == "cdr") return EvalCdr(args);
+        }
+        return nullptr;
+    }
 
-    void HandleDefine(Node* exp) {
+    Node* Cons(Node* car, Node* cdr) {
+        Node* new_node = new Node(car, cdr);
+        return new_node;
+    }
+
+    Node* EvalList(Node* args) {
+        // 1. 結束條件：如果參數串列是空的 (走到底了)
+        if (args == nullptr || args->token.type == Nil) {
+            return nullptr; // 回傳空指標或 Nil 節點
+        }
+
+        // 2. 處理第一個參數 (car)
+        Node* evaluated_car = Eval(args->left);
+
+        // 3. 處理後面的參數 (cdr)
+        Node* evaluated_cdr = EvalList(args->right);
+
+        // 4. 把算好的第一個參數，跟算好的後面參數，重新組合 (Cons) 起來回傳
+        return Cons(evaluated_car, evaluated_cdr); 
+        // Cons 是一個產生新 Pair 節點的函式：
+        // new_node->left = evaluated_car;
+        // new_node->right = evaluated_cdr;
+    }
+
+    Node* HandleDefine(Node* exp) {
         Node* args = exp->right;
         if (args == nullptr || args->is_atom) { 
             throw ParseError(define_format, 0, 0, "0");
@@ -413,28 +453,47 @@ private:
 public:
     Node* Eval(Node* root) {
         if (root == nullptr) return nullptr;
-        if (root->is_atom) {
+
+        if (root->is_atom) { //處理 Atom
             Token t = root->token;
             if (t.type == Symbol) {
                 if (environment.count(get<string>(t.value))) {
                     return environment[get<string>(t.value)];
+                } else {
+                    // 找不到變數，拋出執行期錯誤
+                    //throw EvalError("ERROR (unbound symbol): " + get<string>(t.value));
                 }
             }
-            if (t.type == Nil) {
-                return nullptr;
-            }
-        } else {
-            if (root->left && root->left->is_atom && root->left->token.type == Symbol) {
-                if (get<string>(root->left->token.value) == "define") {
-                    HandleDefine(root);
-                    return nullptr;
+            return root; 
+        } else { //處理 Pair
+            // 先看看這個 Pair 的第一個元素 (left / car) 是什麼
+            Node* first_element = root->left;
+            
+            // 情況 A：檢查是不是 Special Form (例如 define)
+            if (first_element->is_atom && first_element->token.type == Symbol) {
+                string op = get<string>(first_element->token.value);
+                
+                if (op == "define") {
+                    return HandleDefine(root); // 在裡面處理 a 和 5，並回傳 nullptr 或特定節點
                 }
+                if (op == "quote") {
+                    return root->right->left; // quote 不求值，直接回傳後面的東西
+                }
+                // 可以繼續加 if, cond 等...
             }
-            Eval(root->left);
-            Eval(root->right);
+
+            // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
+            // 1. 先遞迴求出真正的操作符 (例如把 '+' 這個 Symbol 解析成真正的加法函式指標)
+            Node* evaluated_op = Eval(first_element); 
+            
+            // 2. 遞迴求出所有參數的值
+            Node* args = root->right;
+            Node* evaluated_args = EvalList(args); // EvalList 是一個輔助函式，它會走訪串列，對每一個 Node 呼叫 Eval()
+            
+            // 3. 把算好的參數交給操作符去執行 (這個步驟在 Lisp 中稱為 Apply)
+            return Apply(evaluated_op, evaluated_args); 
         }
-        return nullptr;
-    }    
+    }
 };
 
 // 印出空白的輔助函式
