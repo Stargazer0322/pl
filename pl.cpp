@@ -378,6 +378,28 @@ class Evaluator {
 private:
     map<string, Node*> environment;
 
+    Node* EvalCar(Node* args) {
+        return args->left;
+    }
+
+    Node* EvalCdr(Node* args) {
+        return args->right;
+    }
+
+    Node* EvalAdd(Node* args) {
+        int sum = 0;
+        while (args != nullptr && !args->is_atom) {
+            Node* evaluated_arg = Eval(args->left);
+            if (evaluated_arg->token.type != Int) {
+                throw ParseError(define_format, 0, 0, "0");
+                return nullptr;
+            }
+            sum += get<int>(evaluated_arg->token.value);
+            args = args->right;
+        
+        }
+    }
+
     Node* Apply(Node* op, Node* args) {
         if (op->is_atom && op->token.type == Symbol) {
             string op_name = get<string>(op->token.value);
