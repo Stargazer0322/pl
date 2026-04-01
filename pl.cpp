@@ -637,7 +637,7 @@ private:
             else if (op_name == "cons") return EvalCons(args);
             else if (op_name == "car") return EvalCar(args);
             else if (op_name == "cdr") return EvalCdr(args);
-            else if (op_name == "list") return EvalList(args);
+            else if (op_name == "list") return args;
         }
         return nullptr;
     }
