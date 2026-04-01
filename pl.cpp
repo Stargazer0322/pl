@@ -387,10 +387,29 @@ class Evaluator {
 private:
     map<string, Node*> environment;
 
+    Node* Cons(Node* car, Node* cdr) {
+        Node* new_node = new Node(car, cdr);
+        return new_node;
+    }
+
     Node* CreateIntNode(int val) {
         Node* n = new Node();
         n->is_atom = true;
-        n->token = Token(Int, to_string(val)); // 依照你的 Token 結構調整
+        n->token = Token(Int, to_string(val));
+        return n;
+    }
+
+    Node* CreateNilNode() {
+        Node* n = new Node();
+        n->is_atom = true;
+        n->token = Token(Nil, "nil");
+        return n;
+    }
+
+    Node* CreateTrueNode() {
+        Node* n = new Node();
+        n->is_atom = true;
+        n->token = Token(T, "#t");
         return n;
     }
 
@@ -420,6 +439,191 @@ private:
         return CreateIntNode(sum);
     }
 
+    Node* EvalSub(Node* args) {
+        int sum = 0;
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            sum = get<int>(arg_val->token.value);
+            current = current->right;
+        }
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            sum -= get<int>(arg_val->token.value);
+            current = current->right; // 走到下一個算好的參數
+        }
+        
+        return CreateIntNode(sum);
+    }
+
+    Node* EvalMul(Node* args) {
+        int sum = 0;
+        Node* current = args;
+        
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            sum *= get<int>(arg_val->token.value);
+            current = current->right; // 走到下一個算好的參數
+        }
+        
+        return CreateIntNode(sum);
+    }
+
+    Node* EvalDiv(Node* args) {
+        int sum = 0;
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            sum = get<int>(arg_val->token.value);
+            current = current->right;
+        }
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            sum /= get<int>(arg_val->token.value);
+            current = current->right; // 走到下一個算好的參數
+        }
+        
+        return CreateIntNode(sum);
+    }
+
+    Node* EvalEqual(Node* args) {
+        int sum = 0;
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            sum = get<int>(arg_val->token.value);
+            current = current->right;
+        }
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            if (sum != get<int>(arg_val->token.value)) return CreateNilNode();
+            current = current->right; // 走到下一個算好的參數
+        }
+        
+        return CreateTrueNode();
+    }
+
+    Node* EvalLess(Node* args) {
+        int sum = 0;
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            sum = get<int>(arg_val->token.value);
+            current = current->right;
+        }
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            if (sum > get<int>(arg_val->token.value)) return CreateNilNode();
+            current = current->right; // 走到下一個算好的參數
+        }
+        
+        return CreateTrueNode();
+    }
+
+    Node* EvalGreater(Node* args) {
+        int sum = 0;
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            sum = get<int>(arg_val->token.value);
+            current = current->right;
+        }
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || arg_val->token.type != Int) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+            
+            if (sum < get<int>(arg_val->token.value)) return CreateNilNode();
+            current = current->right; // 走到下一個算好的參數
+        }
+        
+        return CreateTrueNode();
+    }
+
+    Node* EvalCons(Node* args) {
+        Node* current = args;
+        Node* car_val = current->left;
+        if (car_val == nullptr) { 
+            //throw EvalError("ERROR (+ with incorrect argument type)");
+        }
+        Node* cdr_val = current->right->left;
+        if (cdr_val == nullptr) {
+            //throw EvalError("ERROR (+ with incorrect argument type)");
+        }
+        return Cons(car_val, cdr_val);
+    }
+    
+    Node* EvalList(Node* args) {
+        if (args == nullptr || args->token.type == Nil) {
+            return args; // 到底了，回傳 Nil
+        }
+        Node* evaluated_car = Eval(args->left);       // 算左邊的單一參數
+        Node* evaluated_cdr = EvalList(args->right);  // 遞迴處理剩下的串列
+        return Cons(evaluated_car, evaluated_cdr);    // 重新組裝回傳
+    }
+
     Node* Apply(Node* op, Node* args) {
         if (op->is_atom && op->token.type == Symbol) {
             string op_name = get<string>(op->token.value);
@@ -433,41 +637,28 @@ private:
             else if (op_name == "cons") return EvalCons(args);
             else if (op_name == "car") return EvalCar(args);
             else if (op_name == "cdr") return EvalCdr(args);
+            else if (op_name == "list") return EvalList(args);
         }
         return nullptr;
-    }
-
-    Node* EvalCons(Node* car, Node* cdr) {
-        Node* new_node = new Node(car, cdr);
-        return new_node;
-    }
-
-    Node* EvalList(Node* args) {
-        if (args == nullptr || args->token.type == Nil) {
-            return args; // 到底了，回傳 Nil
-        }
-        Node* evaluated_car = Eval(args->left);       // 算左邊的單一參數
-        Node* evaluated_cdr = EvalList(args->right);  // 遞迴處理剩下的串列
-        return EvalCons(evaluated_car, evaluated_cdr);    // 重新組裝回傳
     }
 
     Node* HandleDefine(Node* exp) {
         Node* args = exp->right;
         if (args == nullptr || args->is_atom) { 
             throw ParseError(define_format, 0, 0, "0");
-            return;
+            return nullptr;
         }
 
         Node* var_node = args->left;
         if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) { 
             throw ParseError(define_format, 0, 0, "0");
-            return;
+            return nullptr;
         }
 
         Node* val_list = args->right;
         if (val_list == nullptr || val_list->is_atom) {
             throw ParseError(define_format, 0, 0, "0");
-            return;
+            return nullptr;
         }
 
         Node* val_node = val_list->left;
@@ -519,7 +710,6 @@ public:
                 if (op == "define") return HandleDefine(node);
                 if (op == "quote")  return HandleQuote(node);
                 if (op == "if")     return HandleIf(node);
-                //if (op == "clean-environment") return HandleCleanEnv(node);
                 // and, or, cond, begin...
             }
 
@@ -543,41 +733,6 @@ void PrintSpace(int num) {
 
 // Pretty Print 列印 S-exp
 void PrintSExp(Node* node, int M) {
-    if (node == nullptr) return;
-
-    if (node->is_atom) {
-        Token t = node->token;
-        if (t.type == Int) cout << get<int>(t.value) << "\n";
-        else if (t.type == Float) printf("%.3f\n", get<float>(t.value));
-        else if (t.type == Nil) cout << "nil\n";
-        else if (t.type == T) cout << "#t\n";
-        else cout << get<string>(t.value) << "\n"; // Symbol 或 String
-    } else {
-        // 這是一個 Pair (括號結構)
-        cout << "( ";
-        PrintSExp(node->left, M + 2);
-
-        Node* curr = node->right;
-        while (curr != nullptr && !curr->is_atom) {
-            PrintSpace(M + 2);
-            PrintSExp(curr->left, M + 2);
-            curr = curr->right;
-        }
-
-        if (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
-            // 如果右結尾不是 nil，表示有 Dotted pair
-            PrintSpace(M + 2);
-            cout << ".\n";
-            PrintSpace(M + 2);
-            PrintSExp(curr, M + 2);
-        }
-
-        PrintSpace(M);
-        cout << ")\n";
-    }
-}
-
-void PrintEval(Node* node, int M) {
     if (node == nullptr) return;
 
     if (node->is_atom) {
@@ -660,16 +815,14 @@ int main() {
 
             // 處理 (clean-environment)
             if (IsClearEnvironment(root)) {
-                cout << "\nenvironment cleaned\n";
+                cout << "environment cleaned\n";
                 FreeTree(root);
                 continue;
             }
 
-            Node* temp = evaluator.Eval(root);
-            //printf("%s", temp->token.value);
+            Node* eval_result = evaluator.Eval(root);
             // 列印樹狀結構
-            //PrintEval(root, 0);
-            //PrintSExp(root, 0);
+            PrintSExp(eval_result, 0);
             FreeTree(root); 
 
         } catch (ParseError& e) {
