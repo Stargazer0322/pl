@@ -399,6 +399,13 @@ private:
         return n;
     }
 
+    Node* CreateFloatNode(float val) {
+        Node* n = new Node();
+        n->is_atom = true;
+        n->token = Token(Float, to_string(val));
+        return n;
+    }
+
     Node* CreateNilNode() {
         Node* n = new Node();
         n->is_atom = true;
@@ -414,130 +421,227 @@ private:
     }
 
     Node* EvalCar(Node* args) {
-        return args->left;
+        if (args == nullptr) return nullptr;
+        Node* arg_val = args->left; // 取得第一個參數
+        if (arg_val == nullptr || arg_val->is_atom) {
+            // 可以在此加入錯誤處理，例如 throw EvalError("...");
+            return nullptr; 
+        }
+        return arg_val->left; // 回傳該參數的 car
     }
 
     Node* EvalCdr(Node* args) {
-        return args->right;
+        if (args == nullptr) return nullptr;
+        Node* arg_val = args->left; // 取得第一個參數
+        if (arg_val == nullptr || arg_val->is_atom) {
+            // 可以在此加入錯誤處理
+            return nullptr; 
+        }
+        return arg_val->right; // 回傳該參數的 cdr
     }
 
     Node* EvalAdd(Node* args) {
-        int sum = 0;
+        bool is_float = false;
+        float f_sum = 0.0f;
+        int i_sum = 0;
         Node* current = args;
         
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
                 //throw EvalError("ERROR (+ with incorrect argument type)");
             }
-            
-            sum += get<int>(arg_val->token.value);
+
+            if (arg_val->token.type == Float) {
+                if (!is_float) { is_float = true; f_sum = i_sum; }
+                f_sum += get<float>(arg_val->token.value);
+            } else {
+                if (is_float) {
+                    f_sum += get<int>(arg_val->token.value);
+                } else {
+                    i_sum += get<int>(arg_val->token.value);
+                }
+            }
             current = current->right; // 走到下一個算好的參數
         }
         
-        return CreateIntNode(sum);
+        if (is_float) return CreateFloatNode(f_sum);
+        return CreateIntNode(i_sum);
     }
 
     Node* EvalSub(Node* args) {
-        int sum = 0;
+        bool is_float = false;
+        float f_sum = 0.0f;
+        int i_sum = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (- with incorrect argument type)");
             }
             
-            sum = get<int>(arg_val->token.value);
+            if (arg_val->token.type == Float) {
+                is_float = true;
+                f_sum = get<float>(arg_val->token.value);
+            } else {
+                i_sum = get<int>(arg_val->token.value);
+            }
             current = current->right;
         }
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (- with incorrect argument type)");
             }
             
-            sum -= get<int>(arg_val->token.value);
+            if (arg_val->token.type == Float) {
+                if (!is_float) { is_float = true; f_sum = i_sum; }
+                f_sum -= get<float>(arg_val->token.value);
+            } else {
+                if (is_float) {
+                    f_sum -= get<int>(arg_val->token.value);
+                } else {
+                    i_sum -= get<int>(arg_val->token.value);
+                }
+            }
             current = current->right; // 走到下一個算好的參數
         }
         
-        return CreateIntNode(sum);
+        if (is_float) return CreateFloatNode(f_sum);
+        return CreateIntNode(i_sum);
     }
 
     Node* EvalMul(Node* args) {
-        int sum = 0;
+        bool is_float = false;
+        float f_sum = 1.0f; // 乘法初始值修正為 1
+        int i_sum = 1;
         Node* current = args;
         
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (* with incorrect argument type)");
             }
             
-            sum *= get<int>(arg_val->token.value);
+            if (arg_val->token.type == Float) {
+                if (!is_float) { is_float = true; f_sum = i_sum; }
+                f_sum *= get<float>(arg_val->token.value);
+            } else {
+                if (is_float) {
+                    f_sum *= get<int>(arg_val->token.value);
+                } else {
+                    i_sum *= get<int>(arg_val->token.value);
+                }
+            }
             current = current->right; // 走到下一個算好的參數
         }
         
-        return CreateIntNode(sum);
+        if (is_float) return CreateFloatNode(f_sum);
+        return CreateIntNode(i_sum);
     }
 
     Node* EvalDiv(Node* args) {
-        int sum = 0;
+        bool is_float = false;
+        float f_sum = 0.0f;
+        int i_sum = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (/ with incorrect argument type)");
             }
             
-            sum = get<int>(arg_val->token.value);
+            if (arg_val->token.type == Float) {
+                is_float = true;
+                f_sum = get<float>(arg_val->token.value);
+            } else {
+                i_sum = get<int>(arg_val->token.value);
+            }
             current = current->right;
         }
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (/ with incorrect argument type)");
             }
             
-            sum /= get<int>(arg_val->token.value);
+            if (arg_val->token.type == Float) {
+                if (!is_float) { is_float = true; f_sum = i_sum; }
+                f_sum /= get<float>(arg_val->token.value);
+            } else {
+                if (is_float) {
+                    f_sum /= get<int>(arg_val->token.value);
+                } else {
+                    int val = get<int>(arg_val->token.value);
+                    if (val != 0) { // 避免除以 0 崩潰
+                        i_sum /= val;
+                    }
+                }
+            }
             current = current->right; // 走到下一個算好的參數
         }
         
-        return CreateIntNode(sum);
+        if (is_float) return CreateFloatNode(f_sum);
+        return CreateIntNode(i_sum);
     }
 
     Node* EvalEqual(Node* args) {
-        int sum = 0;
+        bool is_float = false;
+        float f_first = 0.0f;
+        int i_first = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (= with incorrect argument type)");
             }
             
-            sum = get<int>(arg_val->token.value);
+            if (arg_val->token.type == Float) {
+                is_float = true;
+                f_first = get<float>(arg_val->token.value);
+            } else {
+                i_first = get<int>(arg_val->token.value);
+                f_first = i_first;
+            }
             current = current->right;
         }
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (= with incorrect argument type)");
             }
             
-            if (sum != get<int>(arg_val->token.value)) return CreateNilNode();
+            float f_curr = 0.0f;
+            int i_curr = 0;
+            bool curr_is_float = false;
+
+            if (arg_val->token.type == Float) {
+                curr_is_float = true;
+                f_curr = get<float>(arg_val->token.value);
+            } else {
+                i_curr = get<int>(arg_val->token.value);
+                f_curr = i_curr;
+            }
+
+            if (is_float || curr_is_float) {
+                if (f_first != f_curr) return CreateNilNode();
+            } else {
+                if (i_first != i_curr) return CreateNilNode();
+            }
             current = current->right; // 走到下一個算好的參數
         }
         
@@ -545,28 +649,53 @@ private:
     }
 
     Node* EvalLess(Node* args) {
-        int sum = 0;
+        bool is_float = false;
+        float f_first = 0.0f;
+        int i_first = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (< with incorrect argument type)");
             }
             
-            sum = get<int>(arg_val->token.value);
+            if (arg_val->token.type == Float) {
+                is_float = true;
+                f_first = get<float>(arg_val->token.value);
+            } else {
+                i_first = get<int>(arg_val->token.value);
+                f_first = i_first;
+            }
             current = current->right;
         }
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (< with incorrect argument type)");
             }
             
-            if (sum > get<int>(arg_val->token.value)) return CreateNilNode();
+            float f_curr = 0.0f;
+            int i_curr = 0;
+            bool curr_is_float = false;
+
+            if (arg_val->token.type == Float) {
+                curr_is_float = true;
+                f_curr = get<float>(arg_val->token.value);
+            } else {
+                i_curr = get<int>(arg_val->token.value);
+                f_curr = i_curr;
+            }
+
+            // 沿用你原本 sum > curr (即第一位不小於當前值則回傳 Nil) 的比較邏輯
+            if (is_float || curr_is_float) {
+                if (f_first > f_curr) return CreateNilNode();
+            } else {
+                if (i_first > i_curr) return CreateNilNode();
+            }
             current = current->right; // 走到下一個算好的參數
         }
         
@@ -574,28 +703,52 @@ private:
     }
 
     Node* EvalGreater(Node* args) {
-        int sum = 0;
+        bool is_float = false;
+        float f_first = 0.0f;
+        int i_first = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (> with incorrect argument type)");
             }
             
-            sum = get<int>(arg_val->token.value);
+            if (arg_val->token.type == Float) {
+                is_float = true;
+                f_first = get<float>(arg_val->token.value);
+            } else {
+                i_first = get<int>(arg_val->token.value);
+                f_first = i_first;
+            }
             current = current->right;
         }
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || arg_val->token.type != Int) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                //throw EvalError("ERROR (> with incorrect argument type)");
             }
             
-            if (sum < get<int>(arg_val->token.value)) return CreateNilNode();
+            float f_curr = 0.0f;
+            int i_curr = 0;
+            bool curr_is_float = false;
+
+            if (arg_val->token.type == Float) {
+                curr_is_float = true;
+                f_curr = get<float>(arg_val->token.value);
+            } else {
+                i_curr = get<int>(arg_val->token.value);
+                f_curr = i_curr;
+            }
+
+            if (is_float || curr_is_float) {
+                if (f_first < f_curr) return CreateNilNode();
+            } else {
+                if (i_first < i_curr) return CreateNilNode();
+            }
             current = current->right; // 走到下一個算好的參數
         }
         
@@ -624,6 +777,21 @@ private:
         return Cons(evaluated_car, evaluated_cdr);    // 重新組裝回傳
     }
 
+    Node* EvalPair(Node* args) {
+        Node* current = args;
+        Node* car_val = current->left;
+        Node* cdr_val = current->right->left;
+        if (car_val == nullptr || cdr_val == nullptr) return CreateNilNode();
+        return CreateTrueNode();
+    }
+
+    Node* EvalNull(Node* args) {
+        Node* current = args;
+        Node* car_val = current->left;
+        if (car_val == nullptr || car_val->token.type != Nil) return CreateTrueNode();
+        return CreateNilNode();
+    }
+
     Node* Apply(Node* op, Node* args) {
         if (op->is_atom && op->token.type == Symbol) {
             string op_name = get<string>(op->token.value);
@@ -638,6 +806,12 @@ private:
             else if (op_name == "car") return EvalCar(args);
             else if (op_name == "cdr") return EvalCdr(args);
             else if (op_name == "list") return args;
+            else if (op_name == "pair?") return EvalPair(args);
+            else if (op_name == "null?") return EvalNull(args);
+            //else if (op_name == "eq?") return EvalEq(args);
+            else if (op_name == "equal?") return EvalEqual(args);
+            else if (op_name == "less?") return EvalLess(args);
+            else if (op_name == "greater?") return EvalGreater(args);
         }
         return nullptr;
     }
