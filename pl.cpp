@@ -454,7 +454,10 @@ private:
             }
 
             if (arg_val->token.type == Float) {
-                if (!is_float) { is_float = true; f_sum = i_sum; }
+                if (!is_float) { 
+                    is_float = true; 
+                    f_sum = i_sum; 
+                }
                 f_sum += get<float>(arg_val->token.value);
             } else {
                 if (is_float) {
@@ -500,7 +503,10 @@ private:
             }
             
             if (arg_val->token.type == Float) {
-                if (!is_float) { is_float = true; f_sum = i_sum; }
+                if (!is_float) { 
+                    is_float = true; 
+                    f_sum = i_sum; 
+                }
                 f_sum -= get<float>(arg_val->token.value);
             } else {
                 if (is_float) {
@@ -530,7 +536,10 @@ private:
             }
             
             if (arg_val->token.type == Float) {
-                if (!is_float) { is_float = true; f_sum = i_sum; }
+                if (!is_float) { 
+                    is_float = true; 
+                    f_sum = i_sum; 
+                }
                 f_sum *= get<float>(arg_val->token.value);
             } else {
                 if (is_float) {
@@ -576,7 +585,10 @@ private:
             }
             
             if (arg_val->token.type == Float) {
-                if (!is_float) { is_float = true; f_sum = i_sum; }
+                if (!is_float) { 
+                    is_float = true; 
+                    f_sum = i_sum; 
+                }
                 f_sum /= get<float>(arg_val->token.value);
             } else {
                 if (is_float) {
@@ -778,17 +790,41 @@ private:
     }
 
     Node* EvalPair(Node* args) {
-        Node* current = args;
-        Node* car_val = current->left;
-        Node* cdr_val = current->right->left;
-        if (car_val == nullptr || cdr_val == nullptr) return CreateNilNode();
-        return CreateTrueNode();
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode(); 
+        }
+        
+        Node* target = args->left; 
+        
+        if (target != nullptr && !target->is_atom) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
     }
 
     Node* EvalNull(Node* args) {
-        Node* current = args;
-        Node* car_val = current->left;
-        if (car_val == nullptr || car_val->token.type != Nil) return CreateTrueNode();
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+        
+        Node* target = args->left;
+        
+        if (target != nullptr && target->is_atom && target->token.type == Nil) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    Node* EvalEq(Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+        
+        Node* target = args->left;
+        
+        if (target != nullptr && target->is_atom && target->token.type == Nil) {
+            return CreateTrueNode();
+        }
         return CreateNilNode();
     }
 
@@ -808,8 +844,14 @@ private:
             else if (op_name == "list") return args;
             else if (op_name == "pair?") return EvalPair(args);
             else if (op_name == "null?") return EvalNull(args);
-            //else if (op_name == "eq?") return EvalEq(args);
-            else if (op_name == "equal?") return EvalEqual(args);
+            // else if (op_name == "integer?") return EvalInteger(args);
+            // else if (op_name == "real?") return EvalReal(args);
+            // else if (op_name == "number?") return EvalNumber(args);
+            // else if (op_name == "symbol?") return EvalSymbol(args);
+            // else if (op_name == "string?") return EvalString(args);
+            // else if (op_name == "boolean?") return EvalBoolean(args);
+            //else if (op_name == "eqv?") return EvalEq(args);
+            //else if (op_name == "equal?") return EvalEqual?(args);
             else if (op_name == "less?") return EvalLess(args);
             else if (op_name == "greater?") return EvalGreater(args);
         }
