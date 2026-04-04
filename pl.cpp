@@ -815,14 +815,92 @@ private:
         return CreateNilNode();
     }
 
-    Node* EvalEq(Node* args) {
+    Node* EvalInteger(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode();
         }
         
         Node* target = args->left;
         
-        if (target != nullptr && target->is_atom && target->token.type == Nil) {
+        if (target != nullptr && target->is_atom && target->token.type == Int) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    Node* EvalReal(Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+        
+        Node* target = args->left;
+        
+        if (target != nullptr && target->is_atom && (target->token.type == Int || target->token.type == Float)) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    Node* EvalNumber(Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+        
+        Node* target = args->left;
+        
+        if (target != nullptr && target->is_atom && (target->token.type == Int || target->token.type == Float)) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    Node* EvalSymbol(Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+        
+        Node* target = args->left;
+        
+        if (target != nullptr && target->is_atom && target->token.type == Symbol) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    Node* EvalString(Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+        
+        Node* target = args->left;
+        
+        if (target != nullptr && target->is_atom && target->token.type == String) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    Node* EvalBoolean(Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+        
+        Node* target = args->left;
+        
+        if (target != nullptr && target->is_atom && (target->token.type == Nil || target->token.type == T)) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    Node* EvalEqv(Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+        
+        Node* target = args->left;
+        
+        if (target != nullptr && target->is_atom && (target->token.type == Int || target->token.type == Float)) {
             return CreateTrueNode();
         }
         return CreateNilNode();
@@ -844,13 +922,13 @@ private:
             else if (op_name == "list") return args;
             else if (op_name == "pair?") return EvalPair(args);
             else if (op_name == "null?") return EvalNull(args);
-            // else if (op_name == "integer?") return EvalInteger(args);
-            // else if (op_name == "real?") return EvalReal(args);
-            // else if (op_name == "number?") return EvalNumber(args);
-            // else if (op_name == "symbol?") return EvalSymbol(args);
-            // else if (op_name == "string?") return EvalString(args);
-            // else if (op_name == "boolean?") return EvalBoolean(args);
-            //else if (op_name == "eqv?") return EvalEq(args);
+            else if (op_name == "integer?") return EvalInteger(args);
+            else if (op_name == "real?") return EvalReal(args);
+            else if (op_name == "number?") return EvalNumber(args);
+            else if (op_name == "symbol?") return EvalSymbol(args);
+            else if (op_name == "string?") return EvalString(args);
+            else if (op_name == "boolean?") return EvalBoolean(args);
+            //else if (op_name == "eqv?") return EvalEqv(args);
             //else if (op_name == "equal?") return EvalEqual?(args);
             else if (op_name == "less?") return EvalLess(args);
             else if (op_name == "greater?") return EvalGreater(args);
@@ -891,7 +969,6 @@ private:
     }
 
     Node* HandleQuote(Node* exp) {
-        // quote 直接回傳後面的整坨東西，完全不求值 [cite: 16]
         return exp->right->left; 
     }
 
