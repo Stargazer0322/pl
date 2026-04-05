@@ -83,6 +83,16 @@ void FreeTree(Node* node) {
     delete node;
 }
 
+void FreeTree(Node* node, Node* unfree) {
+    if (!node) return;
+    if (node == unfree) return;
+    if (!node->is_atom) {
+        FreeTree(node->left, unfree);
+        FreeTree(node->right, unfree);
+    }
+    delete node;
+}
+
 // 複製整個樹 (用於將值存入環境變數，避免與指令一起被 FreeTree 釋放)
 Node* CloneTree(Node* node) {
     if (!node) return nullptr;
@@ -386,6 +396,7 @@ public:
 class Evaluator {
 private:
     map<string, Node*> environment;
+    
 
     Node* Cons(Node* car, Node* cdr) {
         Node* new_node = new Node(car, cdr);
@@ -607,7 +618,7 @@ private:
         return CreateIntNode(i_sum);
     }
 
-    Node* EvalEqual(Node* args) {
+    Node* EvalEqu(Node* args) {
         bool is_float = false;
         float f_first = 0.0f;
         int i_first = 0;
@@ -767,6 +778,22 @@ private:
         return CreateTrueNode();
     }
 
+    Node* EvalGreaterEqual(Node* args) {
+        Node* less = EvalLess(args);
+        if (less == nullptr || less->is_atom && less->token.type == Nil) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    Node* EvalLessEqual(Node* args) {
+        Node* greater = EvalGreater(args);
+        if (greater == nullptr || greater->is_atom && greater->token.type == Nil) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
     Node* EvalCons(Node* args) {
         Node* current = args;
         Node* car_val = current->left;
@@ -894,15 +921,77 @@ private:
     }
 
     Node* EvalEqv(Node* args) {
-        if (args == nullptr || args->is_atom || args->token.type == Nil) {
-            return CreateNilNode();
+        if (args == nullptr || args->token.type == Nil) return CreateNilNode();
+        
+        Node* first_arg = args->left; 
+        
+        Node* remaining = args->right;
+        if (remaining == nullptr || remaining->token.type == Nil) return CreateNilNode();
+        Node* second_arg = remaining->left; 
+        
+        // 1. 若指標相同 (同一個物件，包含同一個 list 的別名)，直接回傳 true
+        if (first_arg == second_arg) return CreateTrueNode();
+        
+        if (first_arg == nullptr || second_arg == nullptr) return CreateNilNode();
+
+        // 2. 針對 Atom，檢查其值是否相等 (Scheme 中 eqv? 對於基本型別會判斷值)
+        if (first_arg->is_atom && second_arg->is_atom) {
+            if (first_arg->token.type != second_arg->token.type) return CreateNilNode();
+            
+            Token_Type t = first_arg->token.type;
+            if (t == Int) return get<int>(first_arg->token.value) == get<int>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
+            if (t == Float) return get<float>(first_arg->token.value) == get<float>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
+            if (t == String || t == Symbol) return get<string>(first_arg->token.value) == get<string>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
+            if (t == Nil || t == T) return CreateTrueNode();
         }
         
-        Node* target = args->left;
+        return CreateNilNode();
+    }
+
+    bool IsEqualNode(Node* a, Node* b) {
+        // 若指標相同，直接回傳 true (同一個物件一定相等)
+        if (a == b) return true;
+        // 若其中一個為 nullptr，則不相等
+        if (a == nullptr || b == nullptr) return false;
         
-        if (target != nullptr && target->is_atom && (target->token.type == Int || target->token.type == Float)) {
+        if (a->is_atom && b->is_atom) {
+            // 型別不同則不相等
+            if (a->token.type != b->token.type) return false;
+            
+            // 根據不同型別比對存放的實際值
+            if (a->token.type == Int) return get<int>(a->token.value) == get<int>(b->token.value);
+            if (a->token.type == Float) return get<float>(a->token.value) == get<float>(b->token.value);
+            if (a->token.type == String || a->token.type == Symbol) return get<string>(a->token.value) == get<string>(b->token.value);
+            if (a->token.type == Nil || a->token.type == T) return true;
+            
+            return a->token.original_value == b->token.original_value;
+        }
+        
+        // 如果都不是 Atom (也就是都是 List/Pair)，則遞迴比對 left(car) 與 right(cdr)
+        if (!a->is_atom && !b->is_atom) {
+            return IsEqualNode(a->left, b->left) && IsEqualNode(a->right, b->right);
+        }
+        
+        // 一個是 Atom，一個是 Pair 的情況
+        return false;
+    }
+
+    Node* EvalEqual(Node* args) {
+        if (args == nullptr || args->token.type == Nil) return CreateNilNode();
+        
+        // 取得第一個參數
+        Node* first_arg = args->left; 
+        
+        // 取得第二個參數的串列結構
+        Node* remaining = args->right;
+        if (remaining == nullptr || remaining->token.type == Nil) return CreateNilNode();
+        Node* second_arg = remaining->left; 
+        
+        // 執行結構比對
+        if (IsEqualNode(first_arg, second_arg)) {
             return CreateTrueNode();
         }
+
         return CreateNilNode();
     }
 
@@ -913,9 +1002,11 @@ private:
             else if (op_name == "-") return EvalSub(args);
             else if (op_name == "*") return EvalMul(args);
             else if (op_name == "/") return EvalDiv(args);
-            else if (op_name == "=") return EvalEqual(args);
+            else if (op_name == "=") return EvalEqu(args);
             else if (op_name == "<") return EvalLess(args);
             else if (op_name == ">") return EvalGreater(args);
+            else if (op_name == ">=") return EvalGreaterEqual(args);
+            else if (op_name == "<=") return EvalLessEqual(args);
             else if (op_name == "cons") return EvalCons(args);
             else if (op_name == "car") return EvalCar(args);
             else if (op_name == "cdr") return EvalCdr(args);
@@ -928,10 +1019,8 @@ private:
             else if (op_name == "symbol?") return EvalSymbol(args);
             else if (op_name == "string?") return EvalString(args);
             else if (op_name == "boolean?") return EvalBoolean(args);
-            //else if (op_name == "eqv?") return EvalEqv(args);
-            //else if (op_name == "equal?") return EvalEqual?(args);
-            else if (op_name == "less?") return EvalLess(args);
-            else if (op_name == "greater?") return EvalGreater(args);
+            else if (op_name == "eqv?") return EvalEqv(args);
+            else if (op_name == "equal?") return EvalEqual(args);
         }
         return nullptr;
     }
@@ -959,10 +1048,35 @@ private:
         // 1. 計算 val_node 的實際值
         Node* evaluated_val = Eval(val_node);
         
-        // 2. 存入環境變數。使用 CloneTree 避免與當前語法樹一同被釋放
+        // 若 evaluated_val 是來自環境變數 (例如 define b a)，為了讓 eqv? 能判斷為 #t 必須共用指標，因此不 Clone
+        bool from_env = false;
+        for (auto& x : environment) {
+            if (x.second == evaluated_val) {
+                from_env = true;
+                break;
+            }
+        }
+        // 其他情況必須 CloneTree，避免與當前語法樹一同被 FreeTree 釋放
+        if (!from_env) {
+            evaluated_val = CloneTree(evaluated_val);
+        }
+
+        // 2. 存入環境變數
         string var_name = get<string>(var_node->token.value);
-        if (environment.count(var_name)) FreeTree(environment[var_name]); // 清理舊值避免 Memory Leak
-        environment[var_name] = CloneTree(evaluated_val);
+        if (environment.count(var_name)) {
+            Node* old_val = environment[var_name];
+            bool found = false;
+            for (auto& x: environment) {
+                if (x.first != var_name && x.second == old_val) {
+                    found = true;
+                    break;
+                }
+                
+            }
+            if (!found) FreeTree(old_val); // 清理舊值避免 Memory Leak
+        }
+        environment[var_name] = evaluated_val;
+        define_node = evaluated_val;
         
         cout << var_name << " defined\n";
         return nullptr;
@@ -979,6 +1093,8 @@ private:
     }
 
 public:
+    Node* define_node;
+
     Node* Eval(Node* node) {
         if (node == nullptr) return nullptr;
 
@@ -1114,9 +1230,10 @@ int main() {
             }
 
             Node* eval_result = evaluator.Eval(root);
+
             // 列印樹狀結構
             PrintSExp(eval_result, 0);
-            FreeTree(root); 
+            FreeTree(root, evaluator.define_node); 
 
         } catch (ParseError& e) {
             // 捕捉各種剖析錯誤並印出相應訊息
