@@ -398,6 +398,34 @@ private:
     map<string, Node*> environment;
     
 
+    bool IsEqualNode(Node* a, Node* b) {
+        // 若指標相同，直接回傳 true (同一個物件一定相等)
+        if (a == b) return true;
+        // 若其中一個為 nullptr，則不相等
+        if (a == nullptr || b == nullptr) return false;
+        
+        if (a->is_atom && b->is_atom) {
+            // 型別不同則不相等
+            if (a->token.type != b->token.type) return false;
+            
+            // 根據不同型別比對存放的實際值
+            if (a->token.type == Int) return get<int>(a->token.value) == get<int>(b->token.value);
+            if (a->token.type == Float) return get<float>(a->token.value) == get<float>(b->token.value);
+            if (a->token.type == String || a->token.type == Symbol) return get<string>(a->token.value) == get<string>(b->token.value);
+            if (a->token.type == Nil || a->token.type == T) return true;
+            
+            return a->token.original_value == b->token.original_value;
+        }
+        
+        // 如果都不是 Atom (也就是都是 List/Pair)，則遞迴比對 left(car) 與 right(cdr)
+        if (!a->is_atom && !b->is_atom) {
+            return IsEqualNode(a->left, b->left) && IsEqualNode(a->right, b->right);
+        }
+        
+        // 一個是 Atom，一個是 Pair 的情況
+        return false;
+    }
+
     Node* Cons(Node* car, Node* cdr) {
         Node* new_node = new Node(car, cdr);
         return new_node;
@@ -428,6 +456,13 @@ private:
         Node* n = new Node();
         n->is_atom = true;
         n->token = Token(T, "#t");
+        return n;
+    }
+
+    Node* CreateStringNode(string val) {
+        Node* n = new Node();
+        n->is_atom = true;
+        n->token = Token(String, val);
         return n;
     }
 
@@ -619,35 +654,27 @@ private:
     }
 
     Node* EvalEqu(Node* args) {
-        bool is_float = false;
-        float f_first = 0.0f;
-        int i_first = 0;
+        if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
+
+        bool prev_is_float = false;
+        float f_prev = 0.0f;
+        int i_prev = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
-            
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (= with incorrect argument type)");
-            }
-            
             if (arg_val->token.type == Float) {
-                is_float = true;
-                f_first = get<float>(arg_val->token.value);
+                prev_is_float = true;
+                f_prev = get<float>(arg_val->token.value);
             } else {
-                i_first = get<int>(arg_val->token.value);
-                f_first = i_first;
+                i_prev = get<int>(arg_val->token.value);
+                f_prev = i_prev;
             }
             current = current->right;
         }
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
-            
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (= with incorrect argument type)");
-            }
-            
             float f_curr = 0.0f;
             int i_curr = 0;
             bool curr_is_float = false;
@@ -660,47 +687,44 @@ private:
                 f_curr = i_curr;
             }
 
-            if (is_float || curr_is_float) {
-                if (f_first != f_curr) return CreateNilNode();
+            if (prev_is_float || curr_is_float) {
+                if (f_prev < f_curr || f_prev > f_curr) return CreateNilNode(); 
             } else {
-                if (i_first != i_curr) return CreateNilNode();
+                if (i_prev < i_curr || i_prev > i_curr) return CreateNilNode();
             }
-            current = current->right; // 走到下一個算好的參數
+
+            prev_is_float = curr_is_float;
+            f_prev = f_curr;
+            i_prev = i_curr;
+
+            current = current->right; 
         }
         
         return CreateTrueNode();
     }
 
     Node* EvalLess(Node* args) {
-        bool is_float = false;
-        float f_first = 0.0f;
-        int i_first = 0;
+        if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
+
+        bool prev_is_float = false;
+        float f_prev = 0.0f;
+        int i_prev = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
-            
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (< with incorrect argument type)");
-            }
-            
             if (arg_val->token.type == Float) {
-                is_float = true;
-                f_first = get<float>(arg_val->token.value);
+                prev_is_float = true;
+                f_prev = get<float>(arg_val->token.value);
             } else {
-                i_first = get<int>(arg_val->token.value);
-                f_first = i_first;
+                i_prev = get<int>(arg_val->token.value);
+                f_prev = i_prev;
             }
             current = current->right;
         }
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
-            
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (< with incorrect argument type)");
-            }
-            
             float f_curr = 0.0f;
             int i_curr = 0;
             bool curr_is_float = false;
@@ -713,48 +737,44 @@ private:
                 f_curr = i_curr;
             }
 
-            // 沿用你原本 sum > curr (即第一位不小於當前值則回傳 Nil) 的比較邏輯
-            if (is_float || curr_is_float) {
-                if (f_first > f_curr) return CreateNilNode();
+            if (prev_is_float || curr_is_float) {
+                if (f_prev >= f_curr) return CreateNilNode(); 
             } else {
-                if (i_first > i_curr) return CreateNilNode();
+                if (i_prev >= i_curr) return CreateNilNode();
             }
-            current = current->right; // 走到下一個算好的參數
+
+            prev_is_float = curr_is_float;
+            f_prev = f_curr;
+            i_prev = i_curr;
+
+            current = current->right; 
         }
         
         return CreateTrueNode();
     }
 
     Node* EvalGreater(Node* args) {
-        bool is_float = false;
-        float f_first = 0.0f;
-        int i_first = 0;
+        if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
+
+        bool prev_is_float = false;
+        float f_prev = 0.0f;
+        int i_prev = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
-            
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (> with incorrect argument type)");
-            }
-            
             if (arg_val->token.type == Float) {
-                is_float = true;
-                f_first = get<float>(arg_val->token.value);
+                prev_is_float = true;
+                f_prev = get<float>(arg_val->token.value);
             } else {
-                i_first = get<int>(arg_val->token.value);
-                f_first = i_first;
+                i_prev = get<int>(arg_val->token.value);
+                f_prev = i_prev;
             }
             current = current->right;
         }
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
-            
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (> with incorrect argument type)");
-            }
-            
             float f_curr = 0.0f;
             int i_curr = 0;
             bool curr_is_float = false;
@@ -767,31 +787,120 @@ private:
                 f_curr = i_curr;
             }
 
-            if (is_float || curr_is_float) {
-                if (f_first < f_curr) return CreateNilNode();
+            if (prev_is_float || curr_is_float) {
+                if (f_prev <= f_curr) return CreateNilNode(); 
             } else {
-                if (i_first < i_curr) return CreateNilNode();
+                if (i_prev <= i_curr) return CreateNilNode();
             }
-            current = current->right; // 走到下一個算好的參數
+
+            prev_is_float = curr_is_float;
+            f_prev = f_curr;
+            i_prev = i_curr;
+
+            current = current->right; 
         }
         
         return CreateTrueNode();
     }
 
     Node* EvalGreaterEqual(Node* args) {
-        Node* less = EvalLess(args);
-        if (less == nullptr || less->is_atom && less->token.type == Nil) {
-            return CreateTrueNode();
+        if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
+
+        bool prev_is_float = false;
+        float f_prev = 0.0f;
+        int i_prev = 0;
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            if (arg_val->token.type == Float) {
+                prev_is_float = true;
+                f_prev = get<float>(arg_val->token.value);
+            } else {
+                i_prev = get<int>(arg_val->token.value);
+                f_prev = i_prev;
+            }
+            current = current->right;
         }
-        return CreateNilNode();
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            float f_curr = 0.0f;
+            int i_curr = 0;
+            bool curr_is_float = false;
+
+            if (arg_val->token.type == Float) {
+                curr_is_float = true;
+                f_curr = get<float>(arg_val->token.value);
+            } else {
+                i_curr = get<int>(arg_val->token.value);
+                f_curr = i_curr;
+            }
+
+            if (prev_is_float || curr_is_float) {
+                if (f_prev < f_curr) return CreateNilNode(); 
+            } else {
+                if (i_prev < i_curr) return CreateNilNode();
+            }
+
+            prev_is_float = curr_is_float;
+            f_prev = f_curr;
+            i_prev = i_curr;
+
+            current = current->right; 
+        }
+        
+        return CreateTrueNode();
     }
 
     Node* EvalLessEqual(Node* args) {
-        Node* greater = EvalGreater(args);
-        if (greater == nullptr || greater->is_atom && greater->token.type == Nil) {
-            return CreateTrueNode();
+        if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
+
+        bool prev_is_float = false;
+        float f_prev = 0.0f;
+        int i_prev = 0;
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            if (arg_val->token.type == Float) {
+                prev_is_float = true;
+                f_prev = get<float>(arg_val->token.value);
+            } else {
+                i_prev = get<int>(arg_val->token.value);
+                f_prev = i_prev;
+            }
+            current = current->right;
         }
-        return CreateNilNode();
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            float f_curr = 0.0f;
+            int i_curr = 0;
+            bool curr_is_float = false;
+
+            if (arg_val->token.type == Float) {
+                curr_is_float = true;
+                f_curr = get<float>(arg_val->token.value);
+            } else {
+                i_curr = get<int>(arg_val->token.value);
+                f_curr = i_curr;
+            }
+
+            if (prev_is_float || curr_is_float) {
+                if (f_prev > f_curr) return CreateNilNode(); 
+            } else {
+                if (i_prev > i_curr) return CreateNilNode();
+            }
+
+            prev_is_float = curr_is_float;
+            f_prev = f_curr;
+            i_prev = i_curr;
+
+            current = current->right; 
+        }
+        
+        return CreateTrueNode();
     }
 
     Node* EvalCons(Node* args) {
@@ -941,39 +1050,12 @@ private:
             Token_Type t = first_arg->token.type;
             if (t == Int) return get<int>(first_arg->token.value) == get<int>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
             if (t == Float) return get<float>(first_arg->token.value) == get<float>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
-            if (t == String || t == Symbol) return get<string>(first_arg->token.value) == get<string>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
+            if (t == Symbol) return get<string>(first_arg->token.value) == get<string>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
+            if (t == String) return CreateNilNode();
             if (t == Nil || t == T) return CreateTrueNode();
         }
         
         return CreateNilNode();
-    }
-
-    bool IsEqualNode(Node* a, Node* b) {
-        // 若指標相同，直接回傳 true (同一個物件一定相等)
-        if (a == b) return true;
-        // 若其中一個為 nullptr，則不相等
-        if (a == nullptr || b == nullptr) return false;
-        
-        if (a->is_atom && b->is_atom) {
-            // 型別不同則不相等
-            if (a->token.type != b->token.type) return false;
-            
-            // 根據不同型別比對存放的實際值
-            if (a->token.type == Int) return get<int>(a->token.value) == get<int>(b->token.value);
-            if (a->token.type == Float) return get<float>(a->token.value) == get<float>(b->token.value);
-            if (a->token.type == String || a->token.type == Symbol) return get<string>(a->token.value) == get<string>(b->token.value);
-            if (a->token.type == Nil || a->token.type == T) return true;
-            
-            return a->token.original_value == b->token.original_value;
-        }
-        
-        // 如果都不是 Atom (也就是都是 List/Pair)，則遞迴比對 left(car) 與 right(cdr)
-        if (!a->is_atom && !b->is_atom) {
-            return IsEqualNode(a->left, b->left) && IsEqualNode(a->right, b->right);
-        }
-        
-        // 一個是 Atom，一個是 Pair 的情況
-        return false;
     }
 
     Node* EvalEqual(Node* args) {
@@ -993,6 +1075,128 @@ private:
         }
 
         return CreateNilNode();
+    }
+
+    Node* EvalNot(Node* args) {
+        if (args == nullptr || args->token.type == Nil) return CreateNilNode();
+
+        Node* target = args->left;
+
+        if (target != nullptr && target->is_atom && target->token.type == Nil) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+    
+    Node* EvalStringAppend(Node* args) {
+        Node* current = args;
+        string str = "";
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            
+            if (arg_val == nullptr || (arg_val->token.type != String)) { 
+                //throw EvalError("ERROR (+ with incorrect argument type)");
+            }
+
+            string temp = get<string>(arg_val->token.value);
+            temp.erase(0, 1);
+            temp.pop_back();
+            str += temp;
+            current = current->right; // 走到下一個算好的參數
+        }
+        str.insert(0, "\"");
+        str += "\"";
+        return CreateStringNode(str);
+    }
+
+    Node* EvalStringGreater(Node* args) {
+        if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
+
+        string str_prev = "";
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            if (arg_val->token.type == String) {
+                str_prev = get<string>(arg_val->token.value);
+            }
+            current = current->right;
+        }
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            string str_curr = "";
+            if (arg_val->token.type == String) {
+                str_curr = get<string>(arg_val->token.value);
+            }
+
+            if (str_prev <= str_curr) return CreateNilNode();
+            str_prev = str_curr;
+
+            current = current->right; 
+        }
+        
+        return CreateTrueNode();
+    }
+
+    Node* EvalStringLess(Node* args) {
+        if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
+
+        string str_prev = "";
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            if (arg_val->token.type == String) {
+                str_prev = get<string>(arg_val->token.value);
+            }
+            current = current->right;
+        }
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            string str_curr = "";
+            if (arg_val->token.type == String) {
+                str_curr = get<string>(arg_val->token.value);
+            }
+
+            if (str_prev >= str_curr) return CreateNilNode();
+            str_prev = str_curr;
+
+            current = current->right; 
+        }
+        
+        return CreateTrueNode();
+    }
+
+    Node* EvalStringEqual(Node* args) {
+        if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
+
+        string str_prev = "";
+        Node* current = args;
+        
+        if (current != nullptr && current->token.type != Nil) { 
+            Node* arg_val = current->left; 
+            if (arg_val->token.type == String) {
+                str_prev = get<string>(arg_val->token.value);
+            }
+            current = current->right;
+        }
+
+        while (current != nullptr && current->token.type != Nil) {
+            Node* arg_val = current->left; 
+            string str_curr = "";
+            if (arg_val->token.type == String) {
+                str_curr = get<string>(arg_val->token.value);
+            }
+
+            if (str_prev > str_curr || str_prev < str_curr) return CreateNilNode();
+            str_prev = str_curr;
+
+            current = current->right; 
+        }
+        
+        return CreateTrueNode();
     }
 
     Node* Apply(Node* op, Node* args) {
@@ -1021,6 +1225,11 @@ private:
             else if (op_name == "boolean?") return EvalBoolean(args);
             else if (op_name == "eqv?") return EvalEqv(args);
             else if (op_name == "equal?") return EvalEqual(args);
+            else if (op_name == "not") return EvalNot(args);
+            else if (op_name == "string-append") return EvalStringAppend(args);
+            else if (op_name == "string>?") return EvalStringGreater(args);
+            else if (op_name == "string<?") return EvalStringLess(args);
+            else if (op_name == "string=?") return EvalStringEqual(args);
         }
         return nullptr;
     }
@@ -1087,9 +1296,37 @@ private:
     }
 
     Node* HandleIf(Node* exp) {
-        // 只有條件成立才求值對應的 branch，實踐「短路求值」 [cite: 26-27]
-        // ...
-        return nullptr;
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) { 
+            //throw ParseError(define_format, 0, 0, "0");
+            return nullptr;
+        }
+
+        Node* cond_node = args->left;
+        if (cond_node == nullptr) { 
+            //throw ParseError(define_format, 0, 0, "0");
+            return nullptr;
+        }
+
+        Node* val_list = args->right;
+        if (val_list == nullptr || val_list->is_atom) {
+            throw ParseError(define_format, 0, 0, "0");
+            return nullptr;
+        }
+
+        Node* val_first = val_list->left;
+        if (val_first == nullptr) {
+            //throw ParseError(define_format, 0, 0, "0");
+            return nullptr;
+        }
+
+        Node* val_second = val_list->right->left;
+
+        Node* evaluated_cond = Eval(cond_node);
+        if (evaluated_cond != nullptr && evaluated_cond->is_atom && evaluated_cond->token.type == Nil) {
+            return Eval(val_second);
+        }
+        return Eval(val_first);
     }
 
 public:
