@@ -22,8 +22,18 @@ enum Error_Type {
     no_more_input,
     unexpected_token_atom,  // 預期要 Atom 或 '('
     unexpected_token_paren,  // 預期要 ')'
-    define_format,           // define 的格式錯誤
-    unbound_symbol,          // 未定義的
+};
+
+enum EvalError_Type {
+    unbound_symbol,             // 未定義的符號
+    non_list,                   // 不是 list (例如 cons 遇到錯誤參數)
+    incorrect_num_of_args,      // 參數數量錯誤
+    incorrect_arg_type,         // 參數型態錯誤 (例如 car 遇到數字、+ 遇到字串)
+    apply_non_function,         // 嘗試把非函式當函式呼叫
+    no_return_value,            // if 或 cond 沒有回傳值
+    division_by_zero,           // 除以零
+    define_format,              // define 格式錯誤
+    cond_format                 // cond 格式錯誤
 };
 
 // 記錄錯誤的 Exception 結構
@@ -33,6 +43,19 @@ struct ParseError : public exception {
     int col;
     string token_str;
     ParseError(Error_Type t, int l, int c, string s) : type(t), line(l), col(c), token_str(s){}
+};
+
+// Eval 專用的 Exception
+struct EvalError : public exception {
+    EvalError_Type type;
+    string msg;     // 用來存放符號名稱 (例如 "a", "+", "car")
+    Node* err_node; // 用來存放需要被 PrintSExp 印出來的語法樹節點
+
+    // 建構子 1：只需要印字串的錯誤 (例如 unbound_symbol, division_by_zero)
+    EvalError(EvalError_Type t, string m) : type(t), msg(m), err_node(nullptr) {}
+
+    // 建構子 2：需要印出一整坨 S-exp 的錯誤 (例如 define_format, non_list)
+    EvalError(EvalError_Type t, string m, Node* n) : type(t), msg(m), err_node(n) {}
 };
 
 // Token 結構
@@ -397,6 +420,13 @@ class Evaluator {
 private:
     map<string, Node*> environment;
     
+    Node* GetLastList(Node* list) {
+        Node* current = list;
+        while (current->right != nullptr && current->right->token.type != Nil) {
+            current = current->right;
+        }
+        return current->left;
+    }
 
     bool IsEqualNode(Node* a, Node* b) {
         // 若指標相同，直接回傳 true (同一個物件一定相等)
@@ -1237,19 +1267,19 @@ private:
     Node* HandleDefine(Node* exp) {
         Node* args = exp->right;
         if (args == nullptr || args->is_atom) { 
-            throw ParseError(define_format, 0, 0, "0");
+            throw EvalError(define_format, "", exp);
             return nullptr;
         }
 
         Node* var_node = args->left;
         if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) { 
-            throw ParseError(define_format, 0, 0, "0");
+            throw EvalError(define_format, "", exp);
             return nullptr;
         }
 
         Node* val_list = args->right;
         if (val_list == nullptr || val_list->is_atom) {
-            throw ParseError(define_format, 0, 0, "0");
+            throw EvalError(define_format, "", exp);
             return nullptr;
         }
 
@@ -1310,7 +1340,7 @@ private:
 
         Node* val_list = args->right;
         if (val_list == nullptr || val_list->is_atom) {
-            throw ParseError(define_format, 0, 0, "0");
+            //throw ParseError(define_format, 0, 0, "0");
             return nullptr;
         }
 
@@ -1327,6 +1357,77 @@ private:
             return Eval(val_second);
         }
         return Eval(val_first);
+    }
+
+    Node* HandleCond(Node* exp) {
+        Node* args = exp->right;
+        while (args != nullptr && args->token.type != Nil) {
+            Node* clause = args->left;
+            if (clause == nullptr || clause->is_atom) {
+                return nullptr; // 分支格式不正確
+            }
+            
+            Node* condition = clause->left; // 取得條件
+            bool is_last = (args->right == nullptr || args->right->is_atom && args->right->token.type == Nil);
+            bool is_else = (condition->is_atom && condition->token.type == Symbol && get<string>(condition->token.value) == "else" && is_last);
+            
+            Node* eval_cond = nullptr;
+            if (!is_else) {
+                eval_cond = Eval(condition); // 評估條件
+            }
+
+            // Scheme 中只要條件不為 #f (Nil)，就視為成立
+            if (is_else || (eval_cond != nullptr && !(eval_cond->is_atom && eval_cond->token.type == Nil))) {
+                Node* exprs = clause->right;
+                if (exprs == nullptr || (exprs->is_atom && exprs->token.type == Nil)) {
+                    // 分支內只有條件沒有執行語句，回傳條件的評估結果
+                    return is_else ? CreateNilNode() : eval_cond;
+                }
+                
+                Node* result = nullptr;
+                // 循序執行分支內的所有語句，回傳最後一個結果
+                while (exprs != nullptr && exprs->token.type != Nil) {
+                    result = Eval(exprs->left);
+                    exprs = exprs->right;
+                }
+                return result;
+            }
+            args = args->right;
+        }
+        return CreateNilNode(); // 若全部條件都不成立，預設回傳 nil
+    }
+    
+    Node* HandleBegin(Node* exp) {
+        Node* args = exp->right;
+        Node* result = EvalList(args);
+        return GetLastList(result);
+    }
+
+    Node* HandleAnd(Node* exp) {
+        Node* args = exp->right;
+        Node* result = EvalList(args);
+        Node* curr = result;
+        while (curr != nullptr && curr->token.type != Nil) {
+            if (curr->left->is_atom && curr->left->token.type == Nil) {
+                return CreateNilNode();
+            }
+            curr = curr->right;
+        }
+        return GetLastList(result);
+    }
+
+    Node* HandleOr(Node* exp) {
+        Node* args = exp->right;
+        Node* result = EvalList(args);
+        Node* curr = result;
+        while (curr != nullptr && curr->token.type != Nil) {
+            if (curr->left->is_atom && curr->left->token.type == Nil) {
+                curr = curr->right;
+                continue;
+            }
+            return curr->left;
+        }
+        return CreateNilNode();
     }
 
 public:
@@ -1356,7 +1457,10 @@ public:
                 if (op == "define") return HandleDefine(node);
                 if (op == "quote")  return HandleQuote(node);
                 if (op == "if")     return HandleIf(node);
-                // and, or, cond, begin...
+                if (op == "cond")   return HandleCond(node);
+                if (op == "begin") return HandleBegin(node);
+                if (op == "and")   return HandleAnd(node);
+                if (op == "or")   return HandleOr(node);
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
@@ -1465,13 +1569,21 @@ int main() {
                 FreeTree(root);
                 continue;
             }
-
+            try {
             Node* eval_result = evaluator.Eval(root);
 
             // 列印樹狀結構
             PrintSExp(eval_result, 0);
             FreeTree(root, evaluator.define_node); 
-
+            } catch (EvalError& e) {
+                // 捕捉各種求值錯誤並印出相應訊息
+                if (e.type == define_format) {
+                cout << "ERROR (DEFINE format) : ";
+                PrintSExp(e.err_node, 0);
+                parser.DiscardLine();
+                } else if (e.type == unbound_symbol) {
+                }
+            }
         } catch (ParseError& e) {
             // 捕捉各種剖析錯誤並印出相應訊息
             if (e.type == no_more_input) {
@@ -1487,10 +1599,6 @@ int main() {
                 parser.DiscardLine();
             } else if (e.type == unexpected_token_paren) {
                 cout << "ERROR (unexpected token) : ')' expected when token at Line " << e.line << " Column " << e.col << " is >>" << e.token_str << "<<\n";
-                parser.DiscardLine();
-            } else if (e.type == define_format) {
-                cout << "ERROR (DEFINE format) : ";
-                PrintSExp(root, 0);
                 parser.DiscardLine();
             }
             FreeTree(root);
