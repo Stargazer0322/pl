@@ -16,48 +16,6 @@ enum Token_Type {
     EndOfFile, ErrorToken
 };
 
-// 定義錯誤的種類
-enum Error_Type {
-    no_closing_quote,
-    no_more_input,
-    unexpected_token_atom,  // 預期要 Atom 或 '('
-    unexpected_token_paren,  // 預期要 ')'
-};
-
-enum EvalError_Type {
-    unbound_symbol,             // 未定義的符號
-    non_list,                   // 不是 list (例如 cons 遇到錯誤參數)
-    incorrect_num_of_args,      // 參數數量錯誤
-    incorrect_arg_type,         // 參數型態錯誤 (例如 car 遇到數字、+ 遇到字串)
-    apply_non_function,         // 嘗試把非函式當函式呼叫
-    no_return_value,            // if 或 cond 沒有回傳值
-    division_by_zero,           // 除以零
-    define_format,              // define 格式錯誤
-    cond_format                 // cond 格式錯誤
-};
-
-// 記錄錯誤的 Exception 結構
-struct ParseError : public exception {
-    Error_Type type;
-    int line;
-    int col;
-    string token_str;
-    ParseError(Error_Type t, int l, int c, string s) : type(t), line(l), col(c), token_str(s){}
-};
-
-// Eval 專用的 Exception
-struct EvalError : public exception {
-    EvalError_Type type;
-    string msg;     // 用來存放符號名稱 (例如 "a", "+", "car")
-    Node* err_node; // 用來存放需要被 PrintSExp 印出來的語法樹節點
-
-    // 建構子 1：只需要印字串的錯誤 (例如 unbound_symbol, division_by_zero)
-    EvalError(EvalError_Type t, string m) : type(t), msg(m), err_node(nullptr) {}
-
-    // 建構子 2：需要印出一整坨 S-exp 的錯誤 (例如 define_format, non_list)
-    EvalError(EvalError_Type t, string m, Node* n) : type(t), msg(m), err_node(n) {}
-};
-
 // Token 結構
 struct Token {
     Token_Type type;
@@ -94,6 +52,49 @@ struct Node {
     
     // 建構子：建立 Pair 節點
     Node(Node* l, Node* r) : is_atom(false), left(l), right(r) {}
+};
+
+// 定義 Parser 錯誤的種類
+enum ParserError_Type {
+    no_closing_quote,
+    no_more_input,
+    unexpected_token_atom,  // 預期要 Atom 或 '('
+    unexpected_token_paren,  // 預期要 ')'
+};
+
+// 定義 Eval 錯誤的種類
+enum EvalError_Type {
+    unbound_symbol,             // 未定義的符號
+    non_list,                   // 不是 list (例如 cons 遇到錯誤參數)
+    incorrect_num_of_args,      // 參數數量錯誤
+    incorrect_arg_type,         // 參數型態錯誤 (例如 car 遇到數字、+ 遇到字串)
+    apply_non_function,         // 嘗試把非函式當函式呼叫
+    no_return_value,            // if 或 cond 沒有回傳值
+    division_by_zero,           // 除以零
+    define_format,              // define 格式錯誤
+    cond_format                 // cond 格式錯誤
+};
+
+// 記錄錯誤的 Exception 結構
+struct ParseError : public exception {
+    ParserError_Type type;
+    int line;
+    int col;
+    string token_str;
+    ParseError(ParserError_Type t, int l, int c, string s) : type(t), line(l), col(c), token_str(s){}
+};
+
+// Eval 專用的 Exception
+struct EvalError : public exception {
+    EvalError_Type type;
+    string msg;     // 用來存放符號名稱 (例如 "a", "+", "car")
+    Node* err_node; // 用來存放需要被 PrintSExp 印出來的語法樹節點
+
+    // 建構子 1：只需要印字串的錯誤 (例如 unbound_symbol, division_by_zero)
+    EvalError(EvalError_Type t, string m) : type(t), msg(m), err_node(nullptr) {}
+
+    // 建構子 2：需要印出一整坨 S-exp 的錯誤 (例如 define_format, non_list)
+    EvalError(EvalError_Type t, string m, Node* n) : type(t), msg(m), err_node(n) {}
 };
 
 // 刪除整個樹
@@ -416,6 +417,7 @@ public:
 };
 
 
+// Eval 類別
 class Evaluator {
 private:
     map<string, Node*> environment;
