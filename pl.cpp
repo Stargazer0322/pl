@@ -75,7 +75,8 @@ enum EvalError_Type {
     define_format,              // define 格式錯誤
     cond_format,                // cond 格式錯誤
     level_of_clean_environment, // 
-    level_of_define
+    level_of_define,
+    level_of_exit
 };
 
 // 記錄錯誤的 Exception 結構
@@ -430,7 +431,11 @@ private:
     
     int ListLength(Node* list) {
         int count = 0;
-        while (list != nullptr && list->token.type != Nil) {
+        while (list != nullptr) {
+            if (list->is_atom) {
+                if (list->token.type == Nil) return count;
+                return -1;
+            }
             count++;
             list = list->right;
         }
@@ -521,6 +526,9 @@ private:
     }
 
     Node* EvalCar(Node* args) {
+        if (args->is_atom) {
+            throw EvalError(incorrect_arg_type, "car", args);
+        }
         // 檢查參數個數
         if (ListLength(args) != 1) {
             throw EvalError(incorrect_num_of_args, "car");
@@ -534,6 +542,9 @@ private:
     }
 
     Node* EvalCdr(Node* args) {
+        if (args->is_atom) {
+            throw EvalError(incorrect_arg_type, "cdr", args);
+        }
         // 檢查參數個數
         if (ListLength(args) != 1) {
             throw EvalError(incorrect_num_of_args, "cdr");
@@ -556,7 +567,7 @@ private:
             Node* arg_val = current->left; 
             
             if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+                throw EvalError(incorrect_arg_type, "+", arg_val);
             }
 
             if (arg_val->token.type == Float) {
@@ -589,7 +600,7 @@ private:
             Node* arg_val = current->left; 
             
             if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (- with incorrect argument type)");
+                throw EvalError(incorrect_arg_type, "-", arg_val);
             }
             
             if (arg_val->token.type == Float) {
@@ -605,7 +616,7 @@ private:
             Node* arg_val = current->left; 
             
             if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (- with incorrect argument type)");
+                throw EvalError(incorrect_arg_type, "-", arg_val);
             }
             
             if (arg_val->token.type == Float) {
@@ -638,7 +649,7 @@ private:
             Node* arg_val = current->left; 
             
             if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (* with incorrect argument type)");
+                throw EvalError(incorrect_arg_type, "*", arg_val);
             }
             
             if (arg_val->token.type == Float) {
@@ -671,7 +682,7 @@ private:
             Node* arg_val = current->left; 
             
             if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (/ with incorrect argument type)");
+                throw EvalError(incorrect_arg_type, "/", arg_val);
             }
             
             if (arg_val->token.type == Float) {
@@ -687,7 +698,7 @@ private:
             Node* arg_val = current->left; 
             
             if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
-                //throw EvalError("ERROR (/ with incorrect argument type)");
+                throw EvalError(incorrect_arg_type, "/", arg_val);
             }
             
             if (arg_val->token.type == Float) {
@@ -703,6 +714,8 @@ private:
                     int val = get<int>(arg_val->token.value);
                     if (val != 0) { // 避免除以 0 崩潰
                         i_sum /= val;
+                    } else {
+                        throw EvalError(division_by_zero);
                     }
                 }
             }
@@ -714,6 +727,14 @@ private:
     }
 
     Node* EvalEqu(Node* args) {
+        Node* check_curr = args;
+        while (check_curr != nullptr && check_curr->token.type != Nil) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+                throw EvalError(incorrect_arg_type, "=", check_curr->left);
+            }
+            check_curr = check_curr->right;
+        }
+
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
         bool prev_is_float = false;
@@ -723,6 +744,9 @@ private:
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, "=", arg_val);
+            }
             if (arg_val->token.type == Float) {
                 prev_is_float = true;
                 f_prev = get<float>(arg_val->token.value);
@@ -735,6 +759,9 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, "=", arg_val);
+            }
             float f_curr = 0.0f;
             int i_curr = 0;
             bool curr_is_float = false;
@@ -764,6 +791,14 @@ private:
     }
 
     Node* EvalLess(Node* args) {
+        Node* check_curr = args;
+        while (check_curr != nullptr && check_curr->token.type != Nil) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+                throw EvalError(incorrect_arg_type, "<", check_curr->left);
+            }
+            check_curr = check_curr->right;
+        }
+
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
         bool prev_is_float = false;
@@ -773,6 +808,9 @@ private:
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, "<", arg_val);
+            }
             if (arg_val->token.type == Float) {
                 prev_is_float = true;
                 f_prev = get<float>(arg_val->token.value);
@@ -785,6 +823,9 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, "<", arg_val);
+            }
             float f_curr = 0.0f;
             int i_curr = 0;
             bool curr_is_float = false;
@@ -814,6 +855,14 @@ private:
     }
 
     Node* EvalGreater(Node* args) {
+        Node* check_curr = args;
+        while (check_curr != nullptr && check_curr->token.type != Nil) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+                throw EvalError(incorrect_arg_type, ">", check_curr->left);
+            }
+            check_curr = check_curr->right;
+        }
+
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
         bool prev_is_float = false;
@@ -823,6 +872,9 @@ private:
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, ">", arg_val);
+            }
             if (arg_val->token.type == Float) {
                 prev_is_float = true;
                 f_prev = get<float>(arg_val->token.value);
@@ -835,6 +887,9 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, ">", arg_val);
+            }
             float f_curr = 0.0f;
             int i_curr = 0;
             bool curr_is_float = false;
@@ -864,6 +919,14 @@ private:
     }
 
     Node* EvalGreaterEqual(Node* args) {
+        Node* check_curr = args;
+        while (check_curr != nullptr && check_curr->token.type != Nil) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+                throw EvalError(incorrect_arg_type, ">=", check_curr->left);
+            }
+            check_curr = check_curr->right;
+        }
+
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
         bool prev_is_float = false;
@@ -873,6 +936,9 @@ private:
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, ">=", arg_val);
+            }
             if (arg_val->token.type == Float) {
                 prev_is_float = true;
                 f_prev = get<float>(arg_val->token.value);
@@ -885,6 +951,9 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, ">=", arg_val);
+            }
             float f_curr = 0.0f;
             int i_curr = 0;
             bool curr_is_float = false;
@@ -914,6 +983,14 @@ private:
     }
 
     Node* EvalLessEqual(Node* args) {
+        Node* check_curr = args;
+        while (check_curr != nullptr && check_curr->token.type != Nil) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+                throw EvalError(incorrect_arg_type, "<=", check_curr->left);
+            }
+            check_curr = check_curr->right;
+        }
+
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
         bool prev_is_float = false;
@@ -923,6 +1000,9 @@ private:
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, "<=", arg_val);
+            }
             if (arg_val->token.type == Float) {
                 prev_is_float = true;
                 f_prev = get<float>(arg_val->token.value);
@@ -935,6 +1015,9 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+                throw EvalError(incorrect_arg_type, "<=", arg_val);
+            }
             float f_curr = 0.0f;
             int i_curr = 0;
             bool curr_is_float = false;
@@ -1158,7 +1241,7 @@ private:
             Node* arg_val = current->left; 
             
             if (arg_val == nullptr || (arg_val->token.type != String)) { 
-                //throw EvalError("ERROR (+ with incorrect argument type)");
+                throw EvalError(incorrect_arg_type, "string-append", arg_val);
             }
 
             string temp = get<string>(arg_val->token.value);
@@ -1173,6 +1256,14 @@ private:
     }
 
     Node* EvalStringGreater(Node* args) {
+        Node* check_curr = args;
+        while (check_curr != nullptr && check_curr->token.type != Nil) {
+            if (check_curr->left == nullptr || check_curr->left->token.type != String) {
+                throw EvalError(incorrect_arg_type, "string>?", check_curr->left);
+            }
+            check_curr = check_curr->right;
+        }
+
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
         string str_prev = "";
@@ -1180,6 +1271,9 @@ private:
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != String)) { 
+                throw EvalError(incorrect_arg_type, "string>?", arg_val);
+            }
             if (arg_val->token.type == String) {
                 str_prev = get<string>(arg_val->token.value);
             }
@@ -1188,6 +1282,9 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != String)) { 
+                throw EvalError(incorrect_arg_type, "string>?", arg_val);
+            }
             string str_curr = "";
             if (arg_val->token.type == String) {
                 str_curr = get<string>(arg_val->token.value);
@@ -1203,6 +1300,14 @@ private:
     }
 
     Node* EvalStringLess(Node* args) {
+        Node* check_curr = args;
+        while (check_curr != nullptr && check_curr->token.type != Nil) {
+            if (check_curr->left == nullptr || check_curr->left->token.type != String) {
+                throw EvalError(incorrect_arg_type, "string<?", check_curr->left);
+            }
+            check_curr = check_curr->right;
+        }
+
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
         string str_prev = "";
@@ -1210,6 +1315,9 @@ private:
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != String)) { 
+                throw EvalError(incorrect_arg_type, "string<?", arg_val);
+            }
             if (arg_val->token.type == String) {
                 str_prev = get<string>(arg_val->token.value);
             }
@@ -1217,7 +1325,10 @@ private:
         }
 
         while (current != nullptr && current->token.type != Nil) {
-            Node* arg_val = current->left; 
+            Node* arg_val = current->left;
+            if (arg_val == nullptr || (arg_val->token.type != String)) { 
+                throw EvalError(incorrect_arg_type, "string<?", arg_val);
+            } 
             string str_curr = "";
             if (arg_val->token.type == String) {
                 str_curr = get<string>(arg_val->token.value);
@@ -1233,6 +1344,14 @@ private:
     }
 
     Node* EvalStringEqual(Node* args) {
+        Node* check_curr = args;
+        while (check_curr != nullptr && check_curr->token.type != Nil) {
+            if (check_curr->left == nullptr || check_curr->left->token.type != String) {
+                throw EvalError(incorrect_arg_type, "string=?", check_curr->left);
+            }
+            check_curr = check_curr->right;
+        }
+
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
         string str_prev = "";
@@ -1240,6 +1359,9 @@ private:
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
+            if (arg_val == nullptr || (arg_val->token.type != String)) { 
+                throw EvalError(incorrect_arg_type, "string=?", arg_val);
+            }
             if (arg_val->token.type == String) {
                 str_prev = get<string>(arg_val->token.value);
             }
@@ -1247,7 +1369,10 @@ private:
         }
 
         while (current != nullptr && current->token.type != Nil) {
-            Node* arg_val = current->left; 
+            Node* arg_val = current->left;
+            if (arg_val == nullptr || (arg_val->token.type != String)) { 
+                throw EvalError(incorrect_arg_type, "string=?", arg_val);
+            } 
             string str_curr = "";
             if (arg_val->token.type == String) {
                 str_curr = get<string>(arg_val->token.value);
@@ -1313,7 +1438,7 @@ private:
             "cons", "car", "cdr", "list", "pair?", "null?", 
             "integer?", "real?", "number?", "symbol?", "string?", 
             "boolean?", "eqv?", "equal?", "not", "string-append", 
-            "string>?", "string<?", "string=?"
+            "string>?", "string<?", "string=?", "exit"
         };
         for (string p : prims) {
             environment[p] = CreatePrimitiveNode(p);
@@ -1369,10 +1494,19 @@ private:
 
         // 2. 存入環境變數
         string var_name = get<string>(var_node->token.value);
-        if (special_forms->find(var_name)) {
+        bool is_special = false;
+        for (int i = 0; i < 8; i++) {
+            if (special_forms[i] == var_name) {
+                is_special = true;
+                break;
+            }
+        }
+
+        if (is_special) {
             throw EvalError(define_format, "", exp);
             return nullptr;
         }
+
         if (environment.count(var_name)) {
             Node* old_val = environment[var_name];
             if (old_val->token.type == Primitive) {
@@ -1505,6 +1639,19 @@ private:
         return CreateNilNode();
     }
 
+    Node* HandleExit(Node* exp) {
+        if (exp != root) {
+            throw EvalError(level_of_exit);
+            return nullptr;
+        }
+        if (ListLength(exp) != 1) {
+            throw EvalError(incorrect_num_of_args, "exit");
+            return nullptr;
+        }
+        return nullptr;
+    }
+
+
 public:
     Node* root;
     Node* define_node;
@@ -1515,7 +1662,7 @@ public:
             "cons", "car", "cdr", "list", "pair?", "null?", 
             "integer?", "real?", "number?", "symbol?", "string?", 
             "boolean?", "eqv?", "equal?", "not", "string-append", 
-            "string>?", "string<?", "string=?"
+            "string>?", "string<?", "string=?", "exit"
         };
 
         special_forms[0] = "clean-environment";
@@ -1547,6 +1694,11 @@ public:
             }
             return node; 
         } else { //處理 Pair
+            // 任何被當作程式碼評估的 Pair 都必須是正規的 List (以 nil 結尾)，否則拋出 non_list 錯誤
+            if (ListLength(node) == -1) {
+                throw EvalError(non_list, "", node);
+            }
+
             // 先看看這個 Pair 的第一個元素 (left / car) 是什麼
             Node* first_element = node->left;
             
@@ -1561,12 +1713,34 @@ public:
                 if (op == "begin") return HandleBegin(node);
                 if (op == "and")   return HandleAnd(node);
                 if (op == "or")   return HandleOr(node);
+                if (op == "exit") return HandleExit(node);
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
             // 1. 先遞迴求出真正的操作符 (例如把 '+' 這個 Symbol 解析成真正的加法函式指標)
             Node* evaluated_op = Eval(first_element); 
             
+            // 提早檢查是否為有效函式，以及參數數量，讓這些錯誤先於參數評估 (unbound symbol) 被發現
+            if (evaluated_op == nullptr || !(evaluated_op->is_atom && evaluated_op->token.type == Primitive)) {
+                throw EvalError(apply_non_function, evaluated_op ? evaluated_op->token.original_value : "");
+            }
+
+            string op_name = get<string>(evaluated_op->token.value);
+            int arg_count = ListLength(node->right);
+            
+            if (op_name == "not" || op_name == "car" || op_name == "cdr" || 
+                op_name == "pair?" || op_name == "null?" || op_name == "integer?" || 
+                op_name == "real?" || op_name == "number?" || op_name == "symbol?" || 
+                op_name == "string?" || op_name == "boolean?") {
+                if (arg_count != 1) throw EvalError(incorrect_num_of_args, op_name);
+            } else if (op_name == "cons" || op_name == "eqv?" || op_name == "equal?") {
+                if (arg_count != 2) throw EvalError(incorrect_num_of_args, op_name);
+            } else if (op_name == "+" || op_name == "-" || op_name == "*" || op_name == "/" || 
+                op_name == "=" || op_name == "<" || op_name == ">" || op_name == "<=" || op_name == ">=" || 
+                op_name == "string-append" || op_name == "string>?" || op_name == "string<?" || op_name == "string=?") {
+                if (arg_count < 2) throw EvalError(incorrect_num_of_args, op_name);
+            }
+
             // 2. 遞迴求出所有參數的值
             Node* evaluated_args = EvalList(node->right); // EvalList 是一個輔助函式，它會走訪串列，對每一個 Node 呼叫 Eval()
             
@@ -1652,7 +1826,6 @@ int main() {
                 break;
             }
 
-
             try {
                 evaluator.root = root;
                 Node* eval_result = evaluator.Eval(root);
@@ -1675,6 +1848,16 @@ int main() {
                     cout << "ERROR (attempt to apply non-function) : " << e.msg << "\n";
                 } else if (e.type == level_of_define) {
                     cout << "ERROR (level of DEFINE)\n";
+                } else if (e.type == incorrect_arg_type) {
+                    cout << "ERROR (" << e.msg <<  " with incorrect argument type) : ";
+                    PrintSExp(e.err_node, 0);
+                } else if (e.type == non_list) {
+                    cout << "ERROR (non-list) : ";
+                    PrintSExp(e.err_node, 0);
+                } else if (e.type == division_by_zero) {
+                    cout << "ERROR (division by zero) : /\n";
+                } else if (e.type == level_of_exit) {
+                    cout << "ERROR (level of EXIT)\n";
                 }
             }
         } catch (ParseError& e) {
