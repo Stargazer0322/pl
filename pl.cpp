@@ -73,7 +73,9 @@ enum EvalError_Type {
     no_return_value,            // if 或 cond 沒有回傳值
     division_by_zero,           // 除以零
     define_format,              // define 格式錯誤
-    cond_format                 // cond 格式錯誤
+    cond_format,                // cond 格式錯誤
+    level_of_clean_environment, // 
+    level_of_define
 };
 
 // 記錄錯誤的 Exception 結構
@@ -91,10 +93,10 @@ struct EvalError : public exception {
     string msg;     // 用來存放符號名稱 (例如 "a", "+", "car")
     Node* err_node; // 用來存放需要被 PrintSExp 印出來的語法樹節點
 
-    // 建構子 1：只需要印字串的錯誤 (例如 unbound_symbol, division_by_zero)
+    EvalError(EvalError_Type t) : type(t), msg(""), err_node(nullptr) {}
+
     EvalError(EvalError_Type t, string m) : type(t), msg(m), err_node(nullptr) {}
 
-    // 建構子 2：需要印出一整坨 S-exp 的錯誤 (例如 define_format, non_list)
     EvalError(EvalError_Type t, string m, Node* n) : type(t), msg(m), err_node(n) {}
 };
 
@@ -424,6 +426,7 @@ public:
 class Evaluator {
 private:
     map<string, Node*> environment;
+    string special_forms [8];
     
     int ListLength(Node* list) {
         int count = 0;
@@ -1290,11 +1293,45 @@ private:
             else if (op_name == "string>?") return EvalStringGreater(args);
             else if (op_name == "string<?") return EvalStringLess(args);
             else if (op_name == "string=?") return EvalStringEqual(args);
+        } else {
+            throw EvalError(apply_non_function, op->token.original_value);
+        }
+        return nullptr;
+    }
+
+    Node* HandleCleanEnvironment(Node* exp) {
+        if (exp != root) {
+            throw EvalError(level_of_clean_environment);
+        }
+        if (ListLength(exp) != 1) {
+            throw EvalError(incorrect_num_of_args, "clean-environment");
+        }
+        cout << "environment cleaned\n";
+        environment.clear();
+        string prims[] = {
+            "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
+            "cons", "car", "cdr", "list", "pair?", "null?", 
+            "integer?", "real?", "number?", "symbol?", "string?", 
+            "boolean?", "eqv?", "equal?", "not", "string-append", 
+            "string>?", "string<?", "string=?"
+        };
+        for (string p : prims) {
+            environment[p] = CreatePrimitiveNode(p);
         }
         return nullptr;
     }
 
     Node* HandleDefine(Node* exp) {
+        if (exp != root) {
+            throw EvalError(level_of_define);
+            return nullptr;
+        }
+
+        if (ListLength(exp) != 3) {
+            throw EvalError(define_format, "", exp);
+            return nullptr;
+        }
+
         Node* args = exp->right;
         if (args == nullptr || args->is_atom) { 
             throw EvalError(define_format, "", exp);
@@ -1332,8 +1369,16 @@ private:
 
         // 2. 存入環境變數
         string var_name = get<string>(var_node->token.value);
+        if (special_forms->find(var_name)) {
+            throw EvalError(define_format, "", exp);
+            return nullptr;
+        }
         if (environment.count(var_name)) {
             Node* old_val = environment[var_name];
+            if (old_val->token.type == Primitive) {
+                throw EvalError(define_format, "", exp);
+                return nullptr;
+            }
             bool found = false;
             for (auto& x: environment) {
                 if (x.first != var_name && x.second == old_val) {
@@ -1461,6 +1506,7 @@ private:
     }
 
 public:
+    Node* root;
     Node* define_node;
 
     Evaluator() {
@@ -1471,6 +1517,16 @@ public:
             "boolean?", "eqv?", "equal?", "not", "string-append", 
             "string>?", "string<?", "string=?"
         };
+
+        special_forms[0] = "clean-environment";
+        special_forms[1] = "define";
+        special_forms[2] = "quote";
+        special_forms[3] = "if";
+        special_forms[4] = "cond";
+        special_forms[5] = "begin";
+        special_forms[6] = "and";
+        special_forms[7] = "or";
+        
         for (string p : prims) {
             environment[p] = CreatePrimitiveNode(p);
         }
@@ -1497,6 +1553,7 @@ public:
             // 情況 A：檢查是不是 Special Form (例如 define)
             if (first_element->is_atom && first_element->token.type == Symbol) {
                 string op = get<string>(first_element->token.value);
+                if (op == "clean-environment") return HandleCleanEnvironment(node);
                 if (op == "define") return HandleDefine(node);
                 if (op == "quote")  return HandleQuote(node);
                 if (op == "if")     return HandleIf(node);
@@ -1574,18 +1631,6 @@ bool IsExit(Node* root) {
     return false;
 }
 
-// 檢查是否為 (clean-environment) 指令
-bool IsClearEnvironment(Node* root) {
-    if (!root) return false;
-    if (!root->is_atom) {
-        if (root->left && root->left->is_atom && root->left->token.type == Symbol && get<string>(root->left->token.value) == "clean-environment") {
-            if (root->right && root->right->is_atom && root->right->token.type == Nil) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
 
 int main() {
     string whatever;
@@ -1607,30 +1652,29 @@ int main() {
                 break;
             }
 
-            // 處理 (clean-environment)
-            if (IsClearEnvironment(root)) {
-                cout << "environment cleaned\n";
-                FreeTree(root);
-                continue;
-            }
-            try {
-            Node* eval_result = evaluator.Eval(root);
 
-            // 列印樹狀結構
-            PrintSExp(eval_result, 0);
-            FreeTree(root, evaluator.define_node); 
+            try {
+                evaluator.root = root;
+                Node* eval_result = evaluator.Eval(root);
+
+                // 列印樹狀結構
+                PrintSExp(eval_result, 0);
+                FreeTree(root, evaluator.define_node); 
             } catch (EvalError& e) {
                 // 捕捉各種求值錯誤並印出相應訊息
                 if (e.type == define_format) {
-                cout << "ERROR (DEFINE format) : ";
-                PrintSExp(e.err_node, 0);
-                parser.DiscardLine();
+                    cout << "ERROR (DEFINE format) : ";
+                    PrintSExp(e.err_node, 0);
                 } else if (e.type == incorrect_num_of_args) {
                     cout << "ERROR (incorrect number of arguments) : " << e.msg << "\n";
-                    parser.DiscardLine();
                 } else if (e.type == unbound_symbol) {
                     cout << "ERROR (unbound symbol) : " << e.msg << "\n";
-                    parser.DiscardLine();
+                } else if (e.type == level_of_clean_environment) {
+                    cout << "ERROR (level of CLEAN-ENVIRONMENT)\n";
+                } else if (e.type == apply_non_function) {
+                    cout << "ERROR (attempt to apply non-function) : " << e.msg << "\n";
+                } else if (e.type == level_of_define) {
+                    cout << "ERROR (level of DEFINE)\n";
                 }
             }
         } catch (ParseError& e) {
