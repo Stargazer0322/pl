@@ -13,7 +13,8 @@ using namespace std;
 enum Token_Type {
     Symbol, Int, Float, String, Nil, T,
     LeftParen, RightParen, Dot, Quote,
-    EndOfFile, ErrorToken
+    EndOfFile, ErrorToken, 
+    Primitive
 };
 
 // Token 結構
@@ -107,6 +108,7 @@ void FreeTree(Node* node) {
     delete node;
 }
 
+// 刪除部分樹
 void FreeTree(Node* node, Node* unfree) {
     if (!node) return;
     if (node == unfree) return;
@@ -123,6 +125,7 @@ Node* CloneTree(Node* node) {
     if (node->is_atom) return new Node(node->token);
     return new Node(CloneTree(node->left), CloneTree(node->right));
 }
+
 
 // Scanner 類別 (Lexer)
 class Scanner {
@@ -422,6 +425,15 @@ class Evaluator {
 private:
     map<string, Node*> environment;
     
+    int ListLength(Node* list) {
+        int count = 0;
+        while (list != nullptr && list->token.type != Nil) {
+            count++;
+            list = list->right;
+        }
+        return count;
+    }
+
     Node* GetLastList(Node* list) {
         Node* current = list;
         while (current->right != nullptr && current->right->token.type != Nil) {
@@ -498,24 +510,37 @@ private:
         return n;
     }
 
+    Node* CreatePrimitiveNode(string name) {
+        Node* n = new Node();
+        n->is_atom = true;
+        n->token = Token(Primitive, name);
+        return n;
+    }
+
     Node* EvalCar(Node* args) {
-        if (args == nullptr) return nullptr;
-        Node* arg_val = args->left; // 取得第一個參數
-        if (arg_val == nullptr || arg_val->is_atom) {
-            // 可以在此加入錯誤處理，例如 throw EvalError("...");
-            return nullptr; 
+        // 檢查參數個數
+        if (ListLength(args) != 1) {
+            throw EvalError(incorrect_num_of_args, "car");
         }
-        return arg_val->left; // 回傳該參數的 car
+        Node* arg_val = args->left;
+        // 檢查是否為 list (pair)
+        if (arg_val->is_atom) {
+            throw EvalError(incorrect_arg_type, "car", arg_val); // 這裡傳入 atom 供後續列印
+        }
+        return arg_val->left;
     }
 
     Node* EvalCdr(Node* args) {
-        if (args == nullptr) return nullptr;
-        Node* arg_val = args->left; // 取得第一個參數
-        if (arg_val == nullptr || arg_val->is_atom) {
-            // 可以在此加入錯誤處理
-            return nullptr; 
+        // 檢查參數個數
+        if (ListLength(args) != 1) {
+            throw EvalError(incorrect_num_of_args, "cdr");
         }
-        return arg_val->right; // 回傳該參數的 cdr
+        Node* arg_val = args->left;
+        // 檢查是否為 list (pair)
+        if (arg_val->is_atom) {
+            throw EvalError(incorrect_arg_type, "cdr", arg_val); // 這裡傳入 atom 供後續列印
+        }
+        return arg_val->right;
     }
 
     Node* EvalAdd(Node* args) {
@@ -936,6 +961,9 @@ private:
     }
 
     Node* EvalCons(Node* args) {
+        if (ListLength(args) != 2) {
+            throw EvalError(incorrect_num_of_args, "cons");
+        }
         Node* current = args;
         Node* car_val = current->left;
         if (car_val == nullptr) { 
@@ -1232,7 +1260,7 @@ private:
     }
 
     Node* Apply(Node* op, Node* args) {
-        if (op->is_atom && op->token.type == Symbol) {
+        if (op->is_atom && op->token.type == Primitive) {
             string op_name = get<string>(op->token.value);
             if (op_name == "+") return EvalAdd(args);
             else if (op_name == "-") return EvalSub(args);
@@ -1435,6 +1463,19 @@ private:
 public:
     Node* define_node;
 
+    Evaluator() {
+        string prims[] = {
+            "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
+            "cons", "car", "cdr", "list", "pair?", "null?", 
+            "integer?", "real?", "number?", "symbol?", "string?", 
+            "boolean?", "eqv?", "equal?", "not", "string-append", 
+            "string>?", "string<?", "string=?"
+        };
+        for (string p : prims) {
+            environment[p] = CreatePrimitiveNode(p);
+        }
+    }
+    
     Node* Eval(Node* node) {
         if (node == nullptr) return nullptr;
 
@@ -1445,7 +1486,7 @@ public:
                 if (environment.count(name)) {
                     return environment[name]; // 變數查詢
                 } else {
-                    //throw EvalError("ERROR (unbound symbol): " + name); //[cite: 32, 44-45]
+                    throw EvalError(unbound_symbol, name);
                 }
             }
             return node; 
@@ -1493,6 +1534,7 @@ void PrintSExp(Node* node, int M) {
         else if (t.type == Float) printf("%.3f\n", get<float>(t.value));
         else if (t.type == Nil) cout << "nil\n";
         else if (t.type == T) cout << "#t\n";
+        else if (t.type == Primitive) cout << "#<procedure " << get<string>(t.value) << ">\n";
         else cout << get<string>(t.value) << "\n"; // Symbol 或 String
     } else {
         // 這是一個 Pair (括號結構)
@@ -1583,7 +1625,12 @@ int main() {
                 cout << "ERROR (DEFINE format) : ";
                 PrintSExp(e.err_node, 0);
                 parser.DiscardLine();
+                } else if (e.type == incorrect_num_of_args) {
+                    cout << "ERROR (incorrect number of arguments) : " << e.msg << "\n";
+                    parser.DiscardLine();
                 } else if (e.type == unbound_symbol) {
+                    cout << "ERROR (unbound symbol) : " << e.msg << "\n";
+                    parser.DiscardLine();
                 }
             }
         } catch (ParseError& e) {
