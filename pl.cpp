@@ -87,7 +87,8 @@ enum EvalError_Type {
     cond_format,                // cond 語法格式錯誤
     level_of_clean_environment, // clean-environment 不在最外層 (Top-level) 被呼叫
     level_of_define,            // define 不在最外層 (Top-level) 被呼叫
-    level_of_exit               // exit 不在最外層 (Top-level) 被呼叫
+    level_of_exit,              // exit 不在最外層 (Top-level) 被呼叫
+    lambda_format               // lambda 語法格式錯誤
 };
 
 // 記錄錯誤的 Exception 結構
@@ -1790,6 +1791,26 @@ private:
         return nullptr;
     }
 
+    Node* HandleLambda(Node* exp) {
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(lambda_format, "", exp);
+            return nullptr;
+        }
+        Node* params = args->left;
+        if (params == nullptr || params->is_atom) {
+            throw EvalError(lambda_format, "", exp);
+            return nullptr;
+        }
+        Node* body = args->right;
+        if (body == nullptr || body->is_atom) {
+            throw EvalError(lambda_format, "", exp);
+            return nullptr;
+        }
+        
+        return CreateLambdaNode(params, body);
+    }
+
 
 public:
     Node* root;         // 當前正在求值的根節點 (用於檢查 define/exit 的層級)
@@ -1855,6 +1876,7 @@ public:
                 if (op == "and")   return HandleAnd(node);
                 if (op == "or")   return HandleOr(node);
                 if (op == "exit") return HandleExit(node);
+                if (op == "lambda") return HandleLambda(node);
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
@@ -2005,6 +2027,9 @@ int main() {
                     PrintSExp(e.err_node, 0);
                 } else if (e.type == no_return_value) {
                     cout << "ERROR (no return value) : ";
+                    PrintSExp(e.err_node, 0);
+                } else if (e.type == lambda_format) {
+                    cout << "ERROR (LAMBDA format) : ";
                     PrintSExp(e.err_node, 0);
                 }
             }
