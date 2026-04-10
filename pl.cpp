@@ -11,21 +11,32 @@ using namespace std;
 
 // 定義 Token 的種類
 enum Token_Type {
-    Symbol, Int, Float, String, Nil, T,
-    LeftParen, RightParen, Dot, Quote,
-    EndOfFile, ErrorToken, 
-    Primitive
+    Symbol,         // 符號 (例如變數名稱、函式名稱)
+    Int,            // 整數數值
+    Float,          // 浮點數數值
+    String,         // 字串數值
+    Nil,            // 空串列或布林假值 (nil, #f, ())
+    T,              // 布林真值 (#t)
+    LeftParen,      // 左括號 '('
+    RightParen,     // 右括號 ')'
+    Dot,            // 點 '.' (用於 Dotted Pair)
+    Quote,          // 單引號 '\'' (用於 Quote 語法)
+    EndOfFile,      // 檔案結尾 (EOF)
+    ErrorToken,     // 發生錯誤時的無效 Token
+    Primitive       // 內建函式 (例如 +, -, car 等等)
 };
 
 // Token 結構
 struct Token {
-    Token_Type type;
-    string original_value;
-    int line;
-    int col;
-    variant<int, float, string> value;
+    Token_Type type;                   // Token 的種類
+    string original_value;             // 程式碼中原始的字串內容
+    int line;                          // 所在的邏輯行號
+    int col;                           // 所在的邏輯欄位 (Column)
+    variant<int, float, string> value; // 轉型後的實際數值 (整數、浮點數或字串)
 
+    // 建構子：預設建立 ErrorToken
     Token() : type(ErrorToken), line(0), col(0) {}
+    // 建構子：根據傳入的 Token_Type 與字串自動轉換出對應的 value 型態
     Token(Token_Type t, string s) : type(t), original_value(s), line(0), col(0) {
         if (t == Int) value = stoi(s);
         else if (t == Float) value = stof(s);
@@ -57,42 +68,42 @@ struct Node {
 
 // 定義 Parser 錯誤的種類
 enum ParserError_Type {
-    no_closing_quote,
-    no_more_input,
-    unexpected_token_atom,  // 預期要 Atom 或 '('
-    unexpected_token_paren,  // 預期要 ')'
+    no_closing_quote,       // 字串缺乏右雙引號閉合
+    no_more_input,          // 預期還有輸入卻遇到 EOF
+    unexpected_token_atom,  // 語法錯誤：預期為 Atom 或是左括號 '('
+    unexpected_token_paren, // 語法錯誤：預期為右括號 ')'
 };
 
 // 定義 Eval 錯誤的種類
 enum EvalError_Type {
-    unbound_symbol,             // 未定義的符號
-    non_list,                   // 不是 list (例如 cons 遇到錯誤參數)
-    incorrect_num_of_args,      // 參數數量錯誤
-    incorrect_arg_type,         // 參數型態錯誤 (例如 car 遇到數字、+ 遇到字串)
-    apply_non_function,         // 嘗試把非函式當函式呼叫
-    no_return_value,            // if 或 cond 沒有回傳值
-    division_by_zero,           // 除以零
-    define_format,              // define 格式錯誤
-    cond_format,                // cond 格式錯誤
-    level_of_clean_environment, // 
-    level_of_define,
-    level_of_exit
+    unbound_symbol,             // 變數未定義 (未在 environment 找到)
+    non_list,                   // 嘗試對非串列進行操作 (例如傳入非正規 list 給函式)
+    incorrect_num_of_args,      // 傳入的參數數量錯誤
+    incorrect_arg_type,         // 傳入的參數型態錯誤 (例如 car 遇到數字、+ 遇到字串)
+    apply_non_function,         // 嘗試將非函式型態的值當作函式呼叫
+    no_return_value,            // 條件分支 (if 或 cond) 執行後沒有可回傳的值
+    division_by_zero,           // 發生除以零的計算錯誤
+    define_format,              // define 語法格式錯誤
+    cond_format,                // cond 語法格式錯誤
+    level_of_clean_environment, // clean-environment 不在最外層 (Top-level) 被呼叫
+    level_of_define,            // define 不在最外層 (Top-level) 被呼叫
+    level_of_exit               // exit 不在最外層 (Top-level) 被呼叫
 };
 
 // 記錄錯誤的 Exception 結構
 struct ParseError : public exception {
-    ParserError_Type type;
-    int line;
-    int col;
-    string token_str;
+    ParserError_Type type; // 解析錯誤的種類
+    int line;              // 發生錯誤的行號
+    int col;               // 發生錯誤的欄位
+    string token_str;      // 造成錯誤的 Token 原始字串
     ParseError(ParserError_Type t, int l, int c, string s) : type(t), line(l), col(c), token_str(s){}
 };
 
 // Eval 專用的 Exception
 struct EvalError : public exception {
-    EvalError_Type type;
-    string msg;     // 用來存放符號名稱 (例如 "a", "+", "car")
-    Node* err_node; // 用來存放需要被 PrintSExp 印出來的語法樹節點
+    EvalError_Type type; // 評估錯誤的種類
+    string msg;          // 附加訊息或操作符名稱 (例如 "a", "+", "car")
+    Node* err_node;      // 發生錯誤時，需要被 PrintSExp 印出來的語法樹節點
 
     EvalError(EvalError_Type t) : type(t), msg(""), err_node(nullptr) {}
 
@@ -152,6 +163,7 @@ private:
         pos = 0;
     }
 
+    // 判斷字串是否為合法的整數格式 (可帶有正負號)
     bool IsInt(string s) {
         if (s.empty()) return false;
         int start = 0;
@@ -165,6 +177,7 @@ private:
         return true;
     }
 
+    // 判斷字串是否為合法的浮點數格式 (包含單一小數點)
     bool IsFloat(string s) {
         if (s.empty()) return false;
         int start = 0;
@@ -182,7 +195,7 @@ private:
         return (dot_count == 1 && digit_count > 0);
     }
 
-    // 處理字串內的跳脫字元
+    // 處理字串內的跳脫字元 (如 \n, \t, \", \\, \')
     string ProcessString(string raw) {
         string res = "";
         for (int i = 0; i < raw.length(); i++) {
@@ -222,6 +235,7 @@ public:
         pos = line_str.length();
     }
 
+    // 取得下一個 Token，實作語法分析器的核心邏輯 (包含跳過空白、註解及字串處理)
     Token GetNextToken() {
         while (true) {
             if (eof_reached) return Token(EndOfFile, "", -1, -1);
@@ -344,6 +358,7 @@ private:
     Token peek_token;
     bool has_peek = false;
 
+    // 取得下一個 Token (若有暫存則回傳暫存的 Token)
     Token GetNext() {
         if (has_peek) {
             has_peek = false;
@@ -352,6 +367,7 @@ private:
         return scanner.GetNextToken();
     }
 
+    // 偷看下一個 Token，但不將其從串流中消耗掉
     Token PeekNext() {
         if (!has_peek) {
             peek_token = scanner.GetNextToken();
@@ -361,15 +377,18 @@ private:
     }
 
 public:
+    // 通知 Scanner 準備讀取新的 S-Expression
     void ReadyForNewSExp() {
         scanner.ReadyForNewSExp();
     }
 
+    // 發生語法錯誤時，捨棄當前行剩餘的字元與暫存的 Token
     void DiscardLine() {
         scanner.DiscardRestOfLine();
         has_peek = false; 
     }
 
+    // 遞迴讀取一個 S-Expression (Atom 或是 Pair/List)
     Node* ReadSExp() {
         Token t = GetNext();
         if (t.type == EndOfFile) throw ParseError(no_more_input, -1, -1, "");
@@ -396,6 +415,7 @@ public:
         return new Node(t);
     }
 
+    // 遞迴讀取 List 結構，處理括號內的元素以及 Dotted Pair
     Node* ReadList() {
         Token t = PeekNext();
         if (t.type == EndOfFile) throw ParseError(no_more_input, -1, -1, "");
@@ -429,6 +449,7 @@ private:
     map<string, Node*> environment;
     string special_forms [8];
     
+    // 計算 List 的長度，若遇到非正規 List (未以 nil 結尾) 則回傳 -1
     int ListLength(Node* list) {
         int count = 0;
         while (list != nullptr) {
@@ -442,14 +463,20 @@ private:
         return count;
     }
 
+    // 取得串列中的最後一個元素 (car)
+    // 用途：用於取得 begin 等序列執行後，最後一個表達式的回傳值
     Node* GetLastList(Node* list) {
+        if (list == nullptr || (list->is_atom && list->token.type == Nil)) {
+            return list;
+        }
         Node* current = list;
-        while (current->right != nullptr && current->right->token.type != Nil) {
+        while (current->right != nullptr && !(current->right->is_atom && current->right->token.type == Nil)) {
             current = current->right;
         }
         return current->left;
     }
 
+    // 深度比對兩個節點結構及其內容是否完全相等 (用於 equal?)
     bool IsEqualNode(Node* a, Node* b) {
         // 若指標相同，直接回傳 true (同一個物件一定相等)
         if (a == b) return true;
@@ -478,11 +505,15 @@ private:
         return false;
     }
 
+    // 建立一個 Pair 節點 (將 car 與 cdr 連接起來)
     Node* Cons(Node* car, Node* cdr) {
         Node* new_node = new Node(car, cdr);
         return new_node;
     }
 
+    // --- 建立各類型基礎 Node 的函式 ---
+
+    // 建立整數節點
     Node* CreateIntNode(int val) {
         Node* n = new Node();
         n->is_atom = true;
@@ -490,6 +521,7 @@ private:
         return n;
     }
 
+    // 建立浮點數節點
     Node* CreateFloatNode(float val) {
         Node* n = new Node();
         n->is_atom = true;
@@ -497,6 +529,7 @@ private:
         return n;
     }
 
+    // 建立 Nil 節點 (#f / nil / ())
     Node* CreateNilNode() {
         Node* n = new Node();
         n->is_atom = true;
@@ -504,6 +537,7 @@ private:
         return n;
     }
 
+    // 建立 True 節點 (#t)
     Node* CreateTrueNode() {
         Node* n = new Node();
         n->is_atom = true;
@@ -511,6 +545,7 @@ private:
         return n;
     }
 
+    // 建立字串節點
     Node* CreateStringNode(string val) {
         Node* n = new Node();
         n->is_atom = true;
@@ -518,6 +553,7 @@ private:
         return n;
     }
 
+    // 建立內建函式 (Primitive) 節點
     Node* CreatePrimitiveNode(string name) {
         Node* n = new Node();
         n->is_atom = true;
@@ -525,6 +561,9 @@ private:
         return n;
     }
 
+    // --- 內建操作 (Primitives) 評估函式 ---
+
+    // 評估 car：取得 List 的第一個元素 (left)
     Node* EvalCar(Node* args) {
         if (args->is_atom) {
             throw EvalError(incorrect_arg_type, "car", args);
@@ -541,6 +580,7 @@ private:
         return arg_val->left;
     }
 
+    // 評估 cdr：取得 List 的剩餘元素 (right)
     Node* EvalCdr(Node* args) {
         if (args->is_atom) {
             throw EvalError(incorrect_arg_type, "cdr", args);
@@ -557,6 +597,7 @@ private:
         return arg_val->right;
     }
 
+    // 評估加法 (+)：支援多個參數，若包含浮點數則結果轉為浮點數
     Node* EvalAdd(Node* args) {
         bool is_float = false;
         float f_sum = 0.0f;
@@ -590,6 +631,7 @@ private:
         return CreateIntNode(i_sum);
     }
 
+    // 評估減法 (-)：支援多個參數
     Node* EvalSub(Node* args) {
         bool is_float = false;
         float f_sum = 0.0f;
@@ -639,6 +681,7 @@ private:
         return CreateIntNode(i_sum);
     }
 
+    // 評估乘法 (*)：支援多個參數
     Node* EvalMul(Node* args) {
         bool is_float = false;
         float f_sum = 1.0f; // 乘法初始值修正為 1
@@ -672,6 +715,7 @@ private:
         return CreateIntNode(i_sum);
     }
 
+    // 評估除法 (/)：支援多個參數，並檢查除以零的錯誤
     Node* EvalDiv(Node* args) {
         bool is_float = false;
         float f_sum = 0.0f;
@@ -726,6 +770,7 @@ private:
         return CreateIntNode(i_sum);
     }
 
+    // 評估數值相等 (=)：判斷相鄰參數是否全部相等
     Node* EvalEqu(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
@@ -790,6 +835,7 @@ private:
         return CreateTrueNode();
     }
 
+    // 評估數值小於 (<)：判斷參數是否嚴格遞增
     Node* EvalLess(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
@@ -854,6 +900,7 @@ private:
         return CreateTrueNode();
     }
 
+    // 評估數值大於 (>)：判斷參數是否嚴格遞減
     Node* EvalGreater(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
@@ -918,6 +965,7 @@ private:
         return CreateTrueNode();
     }
 
+    // 評估數值大於等於 (>=)：判斷參數是否非遞增
     Node* EvalGreaterEqual(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
@@ -982,6 +1030,7 @@ private:
         return CreateTrueNode();
     }
 
+    // 評估數值小於等於 (<=)：判斷參數是否非遞減
     Node* EvalLessEqual(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
@@ -1046,6 +1095,7 @@ private:
         return CreateTrueNode();
     }
 
+    // 評估 cons：將兩個元素結合成一個 Pair
     Node* EvalCons(Node* args) {
         if (ListLength(args) != 2) {
             throw EvalError(incorrect_num_of_args, "cons");
@@ -1062,6 +1112,7 @@ private:
         return Cons(car_val, cdr_val);
     }
     
+    // 評估 list：將多個元素組成一個以 Nil 結尾的正規串列
     Node* EvalList(Node* args) {
         if (args == nullptr || args->token.type == Nil) {
             return args; // 到底了，回傳 Nil
@@ -1071,6 +1122,7 @@ private:
         return Cons(evaluated_car, evaluated_cdr);    // 重新組裝回傳
     }
 
+    // 判斷是否為 Pair (包含 List，但不含 ()/nil)
     Node* EvalPair(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode(); 
@@ -1084,6 +1136,7 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷是否為 Null (即 nil 或 ())
     Node* EvalNull(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode();
@@ -1097,6 +1150,7 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷是否為整數 (integer?)
     Node* EvalInteger(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode();
@@ -1110,6 +1164,7 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷是否為實數 (real?，包含整數與浮點數)
     Node* EvalReal(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode();
@@ -1123,6 +1178,7 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷是否為數字 (number?，在目前的實作中等同於 real?)
     Node* EvalNumber(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode();
@@ -1136,6 +1192,7 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷是否為符號 (symbol?)
     Node* EvalSymbol(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode();
@@ -1149,6 +1206,7 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷是否為字串 (string?)
     Node* EvalString(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode();
@@ -1162,6 +1220,7 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷是否為布林值 (boolean?，即 #t 或 #f/nil)
     Node* EvalBoolean(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
             return CreateNilNode();
@@ -1175,6 +1234,21 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷是否為 Atom (除了 Pair 以外的任何元素，包含 nil)
+    Node* EvalAtom (Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateTrueNode();
+        }
+        
+        Node* target = args->left; 
+        
+        if (target != nullptr && !target->is_atom) {
+            return CreateNilNode();
+        }
+        return CreateTrueNode();
+    }
+
+    // 判斷兩個元素在值上是否等價 (eqv?)
     Node* EvalEqv(Node* args) {
         if (args == nullptr || args->token.type == Nil) return CreateNilNode();
         
@@ -1204,6 +1278,7 @@ private:
         return CreateNilNode();
     }
 
+    // 判斷兩個元素的結構與內容是否完全相同 (equal?)
     Node* EvalEqual(Node* args) {
         if (args == nullptr || args->token.type == Nil) return CreateNilNode();
         
@@ -1223,6 +1298,7 @@ private:
         return CreateNilNode();
     }
 
+    // 邏輯非 (not)：若參數為 #f/nil 則回傳 #t，否則回傳 #f
     Node* EvalNot(Node* args) {
         if (args == nullptr || args->token.type == Nil) return CreateNilNode();
 
@@ -1234,6 +1310,7 @@ private:
         return CreateNilNode();
     }
     
+    // 字串串接 (string-append)
     Node* EvalStringAppend(Node* args) {
         Node* current = args;
         string str = "";
@@ -1255,6 +1332,7 @@ private:
         return CreateStringNode(str);
     }
 
+    // 判斷字串是否嚴格大於 (string>?)
     Node* EvalStringGreater(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
@@ -1299,6 +1377,7 @@ private:
         return CreateTrueNode();
     }
 
+    // 判斷字串是否嚴格小於 (string<?)
     Node* EvalStringLess(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
@@ -1343,6 +1422,7 @@ private:
         return CreateTrueNode();
     }
 
+    // 判斷字串是否相等 (string=?)
     Node* EvalStringEqual(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
@@ -1387,6 +1467,9 @@ private:
         return CreateTrueNode();
     }
 
+    // --- Evaluator 核心邏輯：Apply 與 Special Forms 處理 ---
+
+    // Apply：將算好的參數套用到指定的內建函式 (Primitive) 上
     Node* Apply(Node* op, Node* args) {
         if (op->is_atom && op->token.type == Primitive) {
             string op_name = get<string>(op->token.value);
@@ -1411,6 +1494,7 @@ private:
             else if (op_name == "symbol?") return EvalSymbol(args);
             else if (op_name == "string?") return EvalString(args);
             else if (op_name == "boolean?") return EvalBoolean(args);
+            else if (op_name == "atom?") return EvalAtom(args);
             else if (op_name == "eqv?") return EvalEqv(args);
             else if (op_name == "equal?") return EvalEqual(args);
             else if (op_name == "not") return EvalNot(args);
@@ -1419,11 +1503,12 @@ private:
             else if (op_name == "string<?") return EvalStringLess(args);
             else if (op_name == "string=?") return EvalStringEqual(args);
         } else {
-            throw EvalError(apply_non_function, op->token.original_value);
+            throw EvalError(apply_non_function, "", args);
         }
         return nullptr;
     }
 
+    // 處理 (clean-environment)：清空自定義變數，恢復初始環境
     Node* HandleCleanEnvironment(Node* exp) {
         if (exp != root) {
             throw EvalError(level_of_clean_environment);
@@ -1437,7 +1522,7 @@ private:
             "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
             "cons", "car", "cdr", "list", "pair?", "null?", 
             "integer?", "real?", "number?", "symbol?", "string?", 
-            "boolean?", "eqv?", "equal?", "not", "string-append", 
+            "boolean?", "atom?", "eqv?", "equal?", "not", "string-append", 
             "string>?", "string<?", "string=?", "exit"
         };
         for (string p : prims) {
@@ -1446,6 +1531,7 @@ private:
         return nullptr;
     }
 
+    // 處理 (define var val)：將變數綁定存入環境中
     Node* HandleDefine(Node* exp) {
         if (exp != root) {
             throw EvalError(level_of_define);
@@ -1530,50 +1616,87 @@ private:
         return nullptr;
     }
 
+    // 處理 (quote exp) 或是 'exp：直接回傳參數本身不作求值
     Node* HandleQuote(Node* exp) {
         return exp->right->left; 
     }
 
+    // 處理 (if test true-expr [false-expr])
     Node* HandleIf(Node* exp) {
+        int len = ListLength(exp);
+        if (len != 3 && len != 4) {
+            throw EvalError(incorrect_num_of_args, "if");
+            return nullptr;
+        }
+        
         Node* args = exp->right;
         if (args == nullptr || args->is_atom) { 
-            //throw ParseError(define_format, 0, 0, "0");
+            throw EvalError(incorrect_num_of_args, "if");
             return nullptr;
         }
 
         Node* cond_node = args->left;
         if (cond_node == nullptr) { 
-            //throw ParseError(define_format, 0, 0, "0");
+            throw EvalError(incorrect_num_of_args, "if");
             return nullptr;
         }
 
         Node* val_list = args->right;
         if (val_list == nullptr || val_list->is_atom) {
-            //throw ParseError(define_format, 0, 0, "0");
+            throw EvalError(incorrect_num_of_args, "if");
             return nullptr;
         }
 
         Node* val_first = val_list->left;
         if (val_first == nullptr) {
-            //throw ParseError(define_format, 0, 0, "0");
+            throw EvalError(incorrect_num_of_args, "if");
             return nullptr;
         }
 
-        Node* val_second = val_list->right->left;
+        Node* val_second = nullptr;
+        if (len == 4) {
+            val_second = val_list->right->left;
+        }
 
         Node* evaluated_cond = Eval(cond_node);
         if (evaluated_cond != nullptr && evaluated_cond->is_atom && evaluated_cond->token.type == Nil) {
-            return Eval(val_second);
+            if (len == 4) {
+                return Eval(val_second);
+            } else {
+                throw EvalError(no_return_value, "", exp);
+            }
         }
         return Eval(val_first);
     }
 
+    // 處理 (cond (test1 expr1) (test2 expr2) ... (else exprN))
     Node* HandleCond(Node* exp) {
+        if (ListLength(exp) <= 1) {
+            throw EvalError(cond_format, "", exp);
+            return nullptr;
+        }
         Node* args = exp->right;
+
         while (args != nullptr && args->token.type != Nil) {
             Node* clause = args->left;
             if (clause == nullptr || clause->is_atom) {
-                return nullptr; // 分支格式不正確
+                throw EvalError(cond_format, "", exp);
+            }
+            
+            Node* condition = clause->left; // 取得條件
+            Node* exprs = clause->right;
+            if (exprs == nullptr || (exprs->is_atom && exprs->token.type == Nil)) {
+                throw EvalError(cond_format, "", exp);
+                return nullptr;
+            }
+            args = args->right;
+        }
+
+        args = exp->right;
+        while (args != nullptr && args->token.type != Nil) {
+            Node* clause = args->left;
+            if (clause == nullptr || clause->is_atom) {
+                throw EvalError(cond_format, "", exp);
             }
             
             Node* condition = clause->left; // 取得條件
@@ -1589,8 +1712,8 @@ private:
             if (is_else || (eval_cond != nullptr && !(eval_cond->is_atom && eval_cond->token.type == Nil))) {
                 Node* exprs = clause->right;
                 if (exprs == nullptr || (exprs->is_atom && exprs->token.type == Nil)) {
-                    // 分支內只有條件沒有執行語句，回傳條件的評估結果
-                    return is_else ? CreateNilNode() : eval_cond;
+                    throw EvalError(cond_format, "", exp);
+                    return nullptr;
                 }
                 
                 Node* result = nullptr;
@@ -1603,28 +1726,43 @@ private:
             }
             args = args->right;
         }
-        return CreateNilNode(); // 若全部條件都不成立，預設回傳 nil
+        throw EvalError(no_return_value, "", exp);
+        return nullptr;
     }
     
+    // 處理 (begin exp1 exp2 ...)：循序求值，回傳最後一個結果
     Node* HandleBegin(Node* exp) {
+        if (ListLength(exp) <= 1) {
+            throw EvalError(incorrect_num_of_args, "begin");
+            return nullptr;
+        }
         Node* args = exp->right;
         Node* result = EvalList(args);
         return GetLastList(result);
     }
 
+    // 處理 (and exp1 exp2 ...)：短路求值，遇到 #f 則提早結束
     Node* HandleAnd(Node* exp) {
         Node* args = exp->right;
-        Node* result = EvalList(args);
-        Node* curr = result;
-        while (curr != nullptr && curr->token.type != Nil) {
-            if (curr->left->is_atom && curr->left->token.type == Nil) {
+        // Scheme 中，不帶參數的 (and) 應回傳 #t
+        Node* result = CreateTrueNode(); 
+        while (args != nullptr && args->token.type != Nil) {
+            Node* clause = args->left;
+            if (clause == nullptr) {
+                //throw EvalError(cond_format, "", exp);
+                return nullptr;
+            }
+            result = Eval(clause);
+            // 如果評估結果是 #f (Nil)，則提早結束並回傳 #f (短路求值)
+            if (result != nullptr && result->is_atom && result->token.type == Nil) {
                 return CreateNilNode();
             }
-            curr = curr->right;
+            args = args->right;
         }
-        return GetLastList(result);
+        return result;
     }
 
+    // 處理 (or exp1 exp2 ...)：短路求值，遇到非 #f 則提早結束回傳該值
     Node* HandleOr(Node* exp) {
         Node* args = exp->right;
         Node* result = EvalList(args);
@@ -1639,6 +1777,7 @@ private:
         return CreateNilNode();
     }
 
+    // 處理 (exit)：結束直譯器
     Node* HandleExit(Node* exp) {
         if (exp != root) {
             throw EvalError(level_of_exit);
@@ -1653,15 +1792,16 @@ private:
 
 
 public:
-    Node* root;
-    Node* define_node;
+    Node* root;         // 當前正在求值的根節點 (用於檢查 define/exit 的層級)
+    Node* define_node;  // 紀錄 define 綁定的節點 (避免被 FreeTree 釋放)
 
+    // 建構子：初始化全域環境與 Special Form 名稱
     Evaluator() {
         string prims[] = {
             "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
             "cons", "car", "cdr", "list", "pair?", "null?", 
             "integer?", "real?", "number?", "symbol?", "string?", 
-            "boolean?", "eqv?", "equal?", "not", "string-append", 
+            "boolean?", "atom?", "eqv?", "equal?", "not", "string-append", 
             "string>?", "string<?", "string=?", "exit"
         };
 
@@ -1679,6 +1819,7 @@ public:
         }
     }
     
+    // 遞迴求值核心：接收一個 AST 節點並回傳其求值結果
     Node* Eval(Node* node) {
         if (node == nullptr) return nullptr;
 
@@ -1722,7 +1863,7 @@ public:
             
             // 提早檢查是否為有效函式，以及參數數量，讓這些錯誤先於參數評估 (unbound symbol) 被發現
             if (evaluated_op == nullptr || !(evaluated_op->is_atom && evaluated_op->token.type == Primitive)) {
-                throw EvalError(apply_non_function, evaluated_op ? evaluated_op->token.original_value : "");
+                throw EvalError(apply_non_function, "", evaluated_op);
             }
 
             string op_name = get<string>(evaluated_op->token.value);
@@ -1731,7 +1872,7 @@ public:
             if (op_name == "not" || op_name == "car" || op_name == "cdr" || 
                 op_name == "pair?" || op_name == "null?" || op_name == "integer?" || 
                 op_name == "real?" || op_name == "number?" || op_name == "symbol?" || 
-                op_name == "string?" || op_name == "boolean?") {
+                op_name == "string?" || op_name == "boolean?" || op_name == "atom?") {
                 if (arg_count != 1) throw EvalError(incorrect_num_of_args, op_name);
             } else if (op_name == "cons" || op_name == "eqv?" || op_name == "equal?") {
                 if (arg_count != 2) throw EvalError(incorrect_num_of_args, op_name);
@@ -1845,7 +1986,8 @@ int main() {
                 } else if (e.type == level_of_clean_environment) {
                     cout << "ERROR (level of CLEAN-ENVIRONMENT)\n";
                 } else if (e.type == apply_non_function) {
-                    cout << "ERROR (attempt to apply non-function) : " << e.msg << "\n";
+                    cout << "ERROR (attempt to apply non-function) : ";
+                    PrintSExp(e.err_node, 0);
                 } else if (e.type == level_of_define) {
                     cout << "ERROR (level of DEFINE)\n";
                 } else if (e.type == incorrect_arg_type) {
@@ -1858,6 +2000,12 @@ int main() {
                     cout << "ERROR (division by zero) : /\n";
                 } else if (e.type == level_of_exit) {
                     cout << "ERROR (level of EXIT)\n";
+                } else if (e.type == cond_format) {
+                    cout << "ERROR (COND format) : ";
+                    PrintSExp(e.err_node, 0);
+                } else if (e.type == no_return_value) {
+                    cout << "ERROR (no return value) : ";
+                    PrintSExp(e.err_node, 0);
                 }
             }
         } catch (ParseError& e) {
