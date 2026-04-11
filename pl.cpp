@@ -9,6 +9,10 @@
 
 using namespace std;
 
+struct Node;
+class Environment;
+struct ClosureNode;
+
 // 定義 Token 的種類
 enum Token_Type {
     Symbol,         // 符號 (例如變數名稱、函式名稱)
@@ -23,7 +27,8 @@ enum Token_Type {
     Quote,          // 單引號 '\'' (用於 Quote 語法)
     EndOfFile,      // 檔案結尾 (EOF)
     ErrorToken,     // 發生錯誤時的無效 Token
-    Primitive       // 內建函式 (例如 +, -, car 等等)
+    Primitive,      // 內建函式 (例如 +, -, car 等等)
+    Closure         // 使用 lambda 定義的匿名函式
 };
 
 // Token 結構
@@ -49,23 +54,38 @@ struct Token {
     }
 };
 
+// ClosureNode 結構：用於儲存 lambda 定義的匿名函式相關資訊
+struct ClosureNode {
+    Node* params;   // 參數列表 (lambda 定義的第一個子節點)
+    Node* body;     // 函式主體 (lambda 定義的第二個子節點)
+    Environment* env; // 定義時所在的環境 (用於實作閉包，捕捉定義時的變數)
+
+    ClosureNode(Node* p, Node* b, Environment* e) : params(p), body(b), env(e) {}
+};
+
 // AST (抽象語法樹) 節點結構
 struct Node {
     bool is_atom;
     Token token;    // 若為 Atom，存放 Token
     Node* left;     // 若為 List/Pair，存放左指標 (car)
     Node* right;    // 若為 List/Pair，存放右指標 (cdr)
+    bool is_closure; // 是否為 lambda 定義的匿名函式 (Closure)
+    ClosureNode* closure; // 若為 Closure，存放 ClosureNode 指標
 
     // 建構子：建立 Error 節點
-    Node() : is_atom(false), left(nullptr), right(nullptr) {}
+    Node() : is_atom(false), left(nullptr), right(nullptr), is_closure(false), closure(nullptr) {}
 
     // 建構子：建立 Atom 節點
-    Node(Token t) : is_atom(true), token(t), left(nullptr), right(nullptr) {}
+    Node(Token t) : is_atom(true), token(t), left(nullptr), right(nullptr), is_closure(false), closure(nullptr) {}
     
     // 建構子：建立 Pair 節點
-    Node(Node* l, Node* r) : is_atom(false), left(l), right(r) {}
+    Node(Node* l, Node* r) : is_atom(false), left(l), right(r), is_closure(false), closure(nullptr) {}
+
+    // 建構子：建立 Closure 節點
+    Node(ClosureNode* c) : is_atom(true), left(nullptr), right(nullptr), is_closure(true), closure(c) {}
 };
 
+// 定義內建函式名稱的陣列，方便在評估階段辨識是否為內建函式
 static const string prims[] = {
     "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
     "cons", "car", "cdr", "list", "pair?", "null?", 
@@ -124,7 +144,11 @@ struct EvalError : public exception {
 // 刪除整個樹
 void FreeTree(Node* node) {
     if (!node) return;
-    if (!node->is_atom) {
+    if (node->is_closure && node->closure != nullptr) {
+        FreeTree(node->closure->params);
+        FreeTree(node->closure->body);
+        delete node->closure;
+    } else if (!node->is_atom) {
         FreeTree(node->left);
         FreeTree(node->right);
     }
@@ -135,7 +159,11 @@ void FreeTree(Node* node) {
 void FreeTree(Node* node, Node* unfree) {
     if (!node) return;
     if (node == unfree) return;
-    if (!node->is_atom) {
+    if (node->is_closure && node->closure != nullptr) {
+        FreeTree(node->closure->params, unfree);
+        FreeTree(node->closure->body, unfree);
+        delete node->closure;
+    } else if (!node->is_atom) {
         FreeTree(node->left, unfree);
         FreeTree(node->right, unfree);
     }
@@ -145,10 +173,17 @@ void FreeTree(Node* node, Node* unfree) {
 // 複製整個樹 (用於將值存入環境變數，避免與指令一起被 FreeTree 釋放)
 Node* CloneTree(Node* node) {
     if (!node) return nullptr;
+    if (node->is_closure) {
+        ClosureNode* c = node->closure;
+        ClosureNode* new_c = new ClosureNode(CloneTree(c->params), CloneTree(c->body), c->env);
+        return new Node(new_c);
+    }
     if (node->is_atom) return new Node(node->token);
     return new Node(CloneTree(node->left), CloneTree(node->right));
 }
 
+
+// Environment 類別：用於儲存變數與其對應的值，並支援巢狀作用域 (parent)
 class Environment {
 public:
     map<string, Node*> vars;
@@ -180,7 +215,8 @@ public:
     }
 };
 
-// Scanner 類別 (Lexer)
+
+// Scanner 類別 (詞法分析器)，負責從輸入中讀取字元並組合成 Token，並追蹤行號與欄位以便錯誤報告
 class Scanner {
 private:
     string line_str;
@@ -390,7 +426,7 @@ public:
 };
 
 
-// Parser 類別 (語法分析器)
+// Parser 類別，負責從 Scanner 取得 Token 並組合成 AST (Node)，實作 S-Expression 的語法分析
 class Parser {
 private:
     Scanner scanner;
@@ -482,10 +518,10 @@ public:
 };
 
 
-// Eval 類別
+// Evaluator 類別，負責從 AST (Node) 評估出對應的值，並使用 Environment 來管理變數與函式定義
 class Evaluator {
 private:
-    Environment curr_env;
+    Environment* curr_env;
     string special_forms [8];
     
     // 計算 List 的長度，若遇到非正規 List (未以 nil 結尾) 則回傳 -1
@@ -598,6 +634,51 @@ private:
         n->is_atom = true;
         n->token = Token(Primitive, name);
         return n;
+    }
+
+    // 建立 Closure 節點 (lambda 定義的匿名函式)
+    Node* CreateClosureNode(Node* params, Node* body) {
+        ClosureNode* closure = new ClosureNode(CloneTree(params), CloneTree(body), curr_env);
+        Node* n = new Node(closure);
+        n->is_closure = true;
+        n->token = Token(Closure, "<closure>");
+        return n;
+    }
+
+    Node* ApplyClosure(Node* op, Node* args) {
+        Node* params = op->closure->params;
+        int param_count = ListLength(params);
+        int arg_count = ListLength(args);
+        if (param_count != arg_count) {
+            throw EvalError(incorrect_num_of_args, "lambda");
+        }
+
+        Environment* saved_env = curr_env;
+        Environment* call_env = new Environment(op->closure->env);
+
+        Node* param_cursor = params;
+        Node* arg_cursor = args;
+        while (param_cursor != nullptr && param_cursor->token.type != Nil) {
+            string param_name = get<string>(param_cursor->left->token.value);
+            call_env->Define(param_name, CloneTree(arg_cursor->left));
+            param_cursor = param_cursor->right;
+            arg_cursor = arg_cursor->right;
+        }
+
+        curr_env = call_env;
+        Node* result = nullptr;
+        try {
+            Node* body_cursor = op->closure->body;
+            while (body_cursor != nullptr && body_cursor->token.type != Nil) {
+                result = Eval(body_cursor->left);
+                body_cursor = body_cursor->right;
+            }
+        } catch (...) {
+            curr_env = saved_env;
+            throw;
+        }
+        curr_env = saved_env;
+        return result;
     }
 
     // --- 內建操作 (Primitives) 評估函式 ---
@@ -1556,9 +1637,9 @@ private:
             throw EvalError(incorrect_num_of_args, "clean-environment");
         }
         cout << "environment cleaned\n";
-        curr_env.vars.clear();
+        curr_env->vars.clear();
         for (string p : prims) {
-            curr_env.Define(p, CreatePrimitiveNode(p));
+            curr_env->Define(p, CreatePrimitiveNode(p));
         }
         return nullptr;
     }
@@ -1570,11 +1651,6 @@ private:
             return nullptr;
         }
 
-        if (ListLength(exp) != 3) {
-            throw EvalError(define_format, "", exp);
-            return nullptr;
-        }
-
         Node* args = exp->right;
         if (args == nullptr || args->is_atom) { 
             throw EvalError(define_format, "", exp);
@@ -1582,7 +1658,7 @@ private:
         }
 
         Node* var_node = args->left;
-        if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) { 
+        if (var_node == nullptr) { 
             throw EvalError(define_format, "", exp);
             return nullptr;
         }
@@ -1593,18 +1669,34 @@ private:
             return nullptr;
         }
 
-        Node* val_node = val_list->left;
-        // 1. 計算 val_node 的實際值
-        Node* evaluated_val = Eval(val_node);
-        
-        // 若 evaluated_val 是來自環境變數 (例如 define b a)，為了讓 eqv? 能判斷為 #t 必須共用指標，因此不 Clone
-        // 其他情況必須 CloneTree，避免與當前語法樹一同被 FreeTree 釋放
-        if (!curr_env.LookupNode(evaluated_val)) {
-            evaluated_val = CloneTree(evaluated_val);
+        string var_name;
+        Node* evaluated_val = nullptr;
+
+        if (var_node->is_atom) {
+            if (ListLength(exp) != 3 || var_node->token.type != Symbol) {
+                throw EvalError(define_format, "", exp);
+                return nullptr;
+            }
+            var_name = get<string>(var_node->token.value);
+            Node* val_node = val_list->left;
+            evaluated_val = Eval(val_node);
+            if (!curr_env->LookupNode(evaluated_val)) {
+                evaluated_val = CloneTree(evaluated_val);
+            }
+        } else {
+            if (ListLength(exp) < 3) {
+                throw EvalError(define_format, "", exp);
+                return nullptr;
+            }
+            Node* function_name = var_node->left;
+            if (function_name == nullptr || !function_name->is_atom || function_name->token.type != Symbol) {
+                throw EvalError(define_format, "", exp);
+                return nullptr;
+            }
+            var_name = get<string>(function_name->token.value);
+            evaluated_val = CreateClosureNode(var_node->right, val_list);
         }
 
-        // 2. 存入環境變數
-        string var_name = get<string>(var_node->token.value);
         bool is_special = false;
         for (auto& i: special_forms) {
             if (i == var_name) {
@@ -1618,23 +1710,19 @@ private:
             return nullptr;
         }
 
-        if (curr_env.LookupVar(var_name) != nullptr) {
-            Node* old_val = curr_env.LookupVar(var_name);
-            if (old_val->token.type == Primitive) {
-                throw EvalError(define_format, "", exp);
-                return nullptr;
-            }
+        if (curr_env->LookupVar(var_name) != nullptr) {
+            Node* old_val = curr_env->LookupVar(var_name);
+            // ...
             bool found = false;
-            for (auto& x: curr_env.vars) {
+            for (auto& x: curr_env->vars) {
                 if (x.first != var_name && x.second == old_val) {
                     found = true;
                     break;
                 }
-                
             }
-            if (!found) FreeTree(old_val); // 清理舊值避免 Memory Leak
+            if (!found) FreeTree(old_val); // 只在沒有其他人指向時才釋放
         }
-        curr_env.Define(var_name, evaluated_val);
+        curr_env->Define(var_name, evaluated_val);
         define_node = evaluated_val;
         
         cout << var_name << " defined\n";
@@ -1815,6 +1903,7 @@ private:
         return nullptr;
     }
 
+    // 處理 (lambda (params) body)：建立匿名函式
     Node* HandleLambda(Node* exp) {
         Node* args = exp->right;
         if (args == nullptr || args->is_atom) {
@@ -1822,7 +1911,7 @@ private:
             return nullptr;
         }
         Node* params = args->left;
-        if (params == nullptr || params->is_atom) {
+        if (params == nullptr) {
             throw EvalError(lambda_format, "", exp);
             return nullptr;
         }
@@ -1832,7 +1921,36 @@ private:
             return nullptr;
         }
         
-        Evaluator lam = Evaluator();
+        // 檢查參數列表是否合法 (必須是以 nil 結尾的正規串列，且每個元素都是 Symbol)
+        if (!(params->is_atom && params->token.type == Nil)) {
+            if (params->is_atom) {
+                throw EvalError(lambda_format, "", exp);
+                return nullptr;
+            }
+            map<string, bool> seen;
+            Node* current = params;
+            while (current != nullptr && current->token.type != Nil) {
+                if (current->is_atom) {
+                    throw EvalError(lambda_format, "", exp);
+                    return nullptr;
+                }
+                Node* param = current->left;
+                if (param == nullptr || !param->is_atom || param->token.type != Symbol) {
+                    throw EvalError(lambda_format, "", exp);
+                    return nullptr;
+                }
+                string param_name = get<string>(param->token.value);
+                if (seen.count(param_name)) {
+                    throw EvalError(lambda_format, "", exp);
+                    return nullptr;
+                }
+                seen[param_name] = true;
+                current = current->right;
+            }
+        }
+
+        // 建立 Lambda 節點，將參數列表與函式主體存入其中
+        return CreateClosureNode(params, body);
     }
 
 
@@ -1842,6 +1960,7 @@ public:
 
     // 建構子：初始化全域環境與 Special Form 名稱
     Evaluator() {
+        curr_env = new Environment();
         special_forms[0] = "clean-environment";
         special_forms[1] = "define";
         special_forms[2] = "quote";
@@ -1852,7 +1971,7 @@ public:
         special_forms[7] = "or";
         
         for (string p : prims) {
-            curr_env.Define(p, CreatePrimitiveNode(p));
+            curr_env->Define(p, CreatePrimitiveNode(p));
         }
     }
     
@@ -1864,14 +1983,14 @@ public:
             Token t = node->token;
             if (t.type == Symbol) {
                 string name = get<string>(t.value);
-                Node* val = curr_env.LookupVar(name);
+                Node* val = curr_env->LookupVar(name);
                 if (val != nullptr) {
                     return val; // 變數查詢
                 } else {
                     throw EvalError(unbound_symbol, name);
                 }
             }
-            return node; 
+            return node;
         } else { //處理 Pair
             // 任何被當作程式碼評估的 Pair 都必須是正規的 List (以 nil 結尾)，否則拋出 non_list 錯誤
             if (ListLength(node) == -1) {
@@ -1901,30 +2020,40 @@ public:
             Node* evaluated_op = Eval(first_element); 
             
             // 提早檢查是否為有效函式，以及參數數量，讓這些錯誤先於參數評估 (unbound symbol) 被發現
-            if (evaluated_op == nullptr || !(evaluated_op->is_atom && evaluated_op->token.type == Primitive)) {
+            if (evaluated_op == nullptr || !(evaluated_op->is_atom && (evaluated_op->token.type == Primitive || evaluated_op->token.type == Closure))) {
                 throw EvalError(apply_non_function, "", evaluated_op);
             }
 
-            string op_name = get<string>(evaluated_op->token.value);
             int arg_count = ListLength(node->right);
-            
-            if (op_name == "not" || op_name == "car" || op_name == "cdr" || 
-                op_name == "pair?" || op_name == "null?" || op_name == "integer?" || 
-                op_name == "real?" || op_name == "number?" || op_name == "symbol?" || 
-                op_name == "string?" || op_name == "boolean?" || op_name == "atom?") {
-                if (arg_count != 1) throw EvalError(incorrect_num_of_args, op_name);
-            } else if (op_name == "cons" || op_name == "eqv?" || op_name == "equal?") {
-                if (arg_count != 2) throw EvalError(incorrect_num_of_args, op_name);
-            } else if (op_name == "+" || op_name == "-" || op_name == "*" || op_name == "/" || 
-                op_name == "=" || op_name == "<" || op_name == ">" || op_name == "<=" || op_name == ">=" || 
-                op_name == "string-append" || op_name == "string>?" || op_name == "string<?" || op_name == "string=?") {
-                if (arg_count < 2) throw EvalError(incorrect_num_of_args, op_name);
+            if (evaluated_op->token.type == Primitive) {
+                string op_name = get<string>(evaluated_op->token.value);
+                
+                if (op_name == "not" || op_name == "car" || op_name == "cdr" || 
+                    op_name == "pair?" || op_name == "null?" || op_name == "integer?" || 
+                    op_name == "real?" || op_name == "number?" || op_name == "symbol?" || 
+                    op_name == "string?" || op_name == "boolean?" || op_name == "atom?") {
+                    if (arg_count != 1) throw EvalError(incorrect_num_of_args, op_name);
+                } else if (op_name == "cons" || op_name == "eqv?" || op_name == "equal?") {
+                    if (arg_count != 2) throw EvalError(incorrect_num_of_args, op_name);
+                } else if (op_name == "+" || op_name == "-" || op_name == "*" || op_name == "/" || 
+                    op_name == "=" || op_name == "<" || op_name == ">" || op_name == "<=" || op_name == ">=" || 
+                    op_name == "string-append" || op_name == "string>?" || op_name == "string<?" || op_name == "string=?") {
+                    if (arg_count < 2) throw EvalError(incorrect_num_of_args, op_name);
+                }
+            } else if (evaluated_op->token.type == Closure) {
+                int param_count = ListLength(evaluated_op->closure->params);
+                if (param_count != arg_count) {
+                    throw EvalError(incorrect_num_of_args, "lambda");
+                }
             }
 
             // 2. 遞迴求出所有參數的值
             Node* evaluated_args = EvalList(node->right); // EvalList 是一個輔助函式，它會走訪串列，對每一個 Node 呼叫 Eval()
             
             // 3. 把算好的參數交給操作符去執行 (這個步驟在 Lisp 中稱為 Apply)
+            if (evaluated_op->token.type == Closure) {
+                return ApplyClosure(evaluated_op, evaluated_args);
+            }
             return Apply(evaluated_op, evaluated_args); 
         }
     }
@@ -1946,6 +2075,7 @@ void PrintSExp(Node* node, int M) {
         else if (t.type == Nil) cout << "nil\n";
         else if (t.type == T) cout << "#t\n";
         else if (t.type == Primitive) cout << "#<procedure " << get<string>(t.value) << ">\n";
+        else if (t.type == Closure) cout << "#<closure>\n";
         else cout << get<string>(t.value) << "\n"; // Symbol 或 String
     } else {
         // 這是一個 Pair (括號結構)
@@ -1985,6 +2115,56 @@ bool IsExit(Node* root) {
     return false;
 }
 
+// EvalError 處理器：根據不同錯誤類型印出相應訊息
+void EvalErrorHandler(EvalError& e) {
+    if (e.type == define_format) {
+        cout << "ERROR (DEFINE format) : ";
+        PrintSExp(e.err_node, 0);
+    } else if (e.type == incorrect_num_of_args) {
+        cout << "ERROR (incorrect number of arguments) : " << e.msg << "\n";
+    } else if (e.type == unbound_symbol) {
+        cout << "ERROR (unbound symbol) : " << e.msg << "\n";
+    } else if (e.type == level_of_clean_environment) {
+        cout << "ERROR (level of CLEAN-ENVIRONMENT)\n";
+    } else if (e.type == apply_non_function) {
+        cout << "ERROR (attempt to apply non-function) : ";
+        PrintSExp(e.err_node, 0);
+    } else if (e.type == level_of_define) {
+        cout << "ERROR (level of DEFINE)\n";
+    } else if (e.type == incorrect_arg_type) {
+        cout << "ERROR (" << e.msg <<  " with incorrect argument type) : ";
+        PrintSExp(e.err_node, 0);
+    } else if (e.type == non_list) {
+        cout << "ERROR (non-list) : ";
+        PrintSExp(e.err_node, 0);
+    } else if (e.type == division_by_zero) {
+        cout << "ERROR (division by zero) : /\n";
+    } else if (e.type == level_of_exit) {
+        cout << "ERROR (level of EXIT)\n";
+    } else if (e.type == cond_format) {
+        cout << "ERROR (COND format) : ";
+        PrintSExp(e.err_node, 0);
+    } else if (e.type == no_return_value) {
+        cout << "ERROR (no return value) : ";
+        PrintSExp(e.err_node, 0);
+    } else if (e.type == lambda_format) {
+        cout << "ERROR (LAMBDA format) : ";
+        PrintSExp(e.err_node, 0);
+    }
+}
+
+// ParseError 處理器：根據不同錯誤類型印出相應訊息
+void PraseErrorHandler(ParseError& e) {
+    if (e.type == no_more_input) {
+        cout << "ERROR (no more input) : END-OF-FILE encountered\n";
+    } else if (e.type == no_closing_quote) {
+        cout << "ERROR (no closing quote) : END-OF-LINE encountered at Line " << e.line << " Column " << e.col << "\n";
+    } else if (e.type == unexpected_token_atom) {
+        cout << "ERROR (unexpected token) : atom or '(' expected when token at Line " << e.line << " Column " << e.col << " is >>" << e.token_str << "<<\n";
+    } else if (e.type == unexpected_token_paren) {
+        cout << "ERROR (unexpected token) : ')' expected when token at Line " << e.line << " Column " << e.col << " is >>" << e.token_str << "<<\n";
+    }
+}
 
 int main() {
     string whatever;
@@ -2014,60 +2194,17 @@ int main() {
                 PrintSExp(eval_result, 0);
                 FreeTree(root, evaluator.define_node); 
             } catch (EvalError& e) {
-                // 捕捉各種求值錯誤並印出相應訊息
-                if (e.type == define_format) {
-                    cout << "ERROR (DEFINE format) : ";
-                    PrintSExp(e.err_node, 0);
-                } else if (e.type == incorrect_num_of_args) {
-                    cout << "ERROR (incorrect number of arguments) : " << e.msg << "\n";
-                } else if (e.type == unbound_symbol) {
-                    cout << "ERROR (unbound symbol) : " << e.msg << "\n";
-                } else if (e.type == level_of_clean_environment) {
-                    cout << "ERROR (level of CLEAN-ENVIRONMENT)\n";
-                } else if (e.type == apply_non_function) {
-                    cout << "ERROR (attempt to apply non-function) : ";
-                    PrintSExp(e.err_node, 0);
-                } else if (e.type == level_of_define) {
-                    cout << "ERROR (level of DEFINE)\n";
-                } else if (e.type == incorrect_arg_type) {
-                    cout << "ERROR (" << e.msg <<  " with incorrect argument type) : ";
-                    PrintSExp(e.err_node, 0);
-                } else if (e.type == non_list) {
-                    cout << "ERROR (non-list) : ";
-                    PrintSExp(e.err_node, 0);
-                } else if (e.type == division_by_zero) {
-                    cout << "ERROR (division by zero) : /\n";
-                } else if (e.type == level_of_exit) {
-                    cout << "ERROR (level of EXIT)\n";
-                } else if (e.type == cond_format) {
-                    cout << "ERROR (COND format) : ";
-                    PrintSExp(e.err_node, 0);
-                } else if (e.type == no_return_value) {
-                    cout << "ERROR (no return value) : ";
-                    PrintSExp(e.err_node, 0);
-                } else if (e.type == lambda_format) {
-                    cout << "ERROR (LAMBDA format) : ";
-                    PrintSExp(e.err_node, 0);
-                }
+                EvalErrorHandler(e);
             }
         } catch (ParseError& e) {
             // 捕捉各種剖析錯誤並印出相應訊息
+            PraseErrorHandler(e);
+            FreeTree(root);
             if (e.type == no_more_input) {
-                cout << "ERROR (no more input) : END-OF-FILE encountered\n";
-                cout << "Thanks for using OurScheme!\n";
-                FreeTree(root);
                 break;
-            } else if (e.type == no_closing_quote) {
-                cout << "ERROR (no closing quote) : END-OF-LINE encountered at Line " << e.line << " Column " << e.col << "\n";
-                parser.DiscardLine();
-            } else if (e.type == unexpected_token_atom) {
-                cout << "ERROR (unexpected token) : atom or '(' expected when token at Line " << e.line << " Column " << e.col << " is >>" << e.token_str << "<<\n";
-                parser.DiscardLine();
-            } else if (e.type == unexpected_token_paren) {
-                cout << "ERROR (unexpected token) : ')' expected when token at Line " << e.line << " Column " << e.col << " is >>" << e.token_str << "<<\n";
+            } else if (e.type == no_closing_quote || e.type == unexpected_token_atom || e.type == unexpected_token_paren) {
                 parser.DiscardLine();
             }
-            FreeTree(root);
         }
     }
     return 0;
