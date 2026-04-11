@@ -66,6 +66,14 @@ struct Node {
     Node(Node* l, Node* r) : is_atom(false), left(l), right(r) {}
 };
 
+static const string prims[] = {
+    "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
+    "cons", "car", "cdr", "list", "pair?", "null?", 
+    "integer?", "real?", "number?", "symbol?", "string?", 
+    "boolean?", "atom?", "eqv?", "equal?", "not", "string-append", 
+    "string>?", "string<?", "string=?", "exit"
+};
+
 // 定義 Parser 錯誤的種類
 enum ParserError_Type {
     no_closing_quote,       // 字串缺乏右雙引號閉合
@@ -141,6 +149,36 @@ Node* CloneTree(Node* node) {
     return new Node(CloneTree(node->left), CloneTree(node->right));
 }
 
+class Environment {
+public:
+    map<string, Node*> vars;
+    Environment* parent;
+
+    Environment(Environment* p = nullptr) : parent(p) {}
+
+
+    // 尋找變數：先找自己，找不到再往上找 parent
+    Node* LookupVar(const string& name) {
+        if (vars.count(name)) return vars[name];
+        if (parent != nullptr) return parent->LookupVar(name);
+        return nullptr;
+    }
+
+    bool LookupNode(Node* node) {
+        for (auto& x : vars) {
+            if (x.second == node) {
+                return true;
+            }
+        }
+        if (parent != nullptr) return parent->LookupNode(node);
+        return false;
+    }
+
+    // 綁定變數 (用於 define 或函數傳參)
+    void Define(const string& name, Node* val) {
+        vars[name] = val;
+    }
+};
 
 // Scanner 類別 (Lexer)
 class Scanner {
@@ -447,7 +485,7 @@ public:
 // Eval 類別
 class Evaluator {
 private:
-    map<string, Node*> environment;
+    Environment curr_env;
     string special_forms [8];
     
     // 計算 List 的長度，若遇到非正規 List (未以 nil 結尾) 則回傳 -1
@@ -1518,16 +1556,9 @@ private:
             throw EvalError(incorrect_num_of_args, "clean-environment");
         }
         cout << "environment cleaned\n";
-        environment.clear();
-        string prims[] = {
-            "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
-            "cons", "car", "cdr", "list", "pair?", "null?", 
-            "integer?", "real?", "number?", "symbol?", "string?", 
-            "boolean?", "atom?", "eqv?", "equal?", "not", "string-append", 
-            "string>?", "string<?", "string=?", "exit"
-        };
+        curr_env.vars.clear();
         for (string p : prims) {
-            environment[p] = CreatePrimitiveNode(p);
+            curr_env.Define(p, CreatePrimitiveNode(p));
         }
         return nullptr;
     }
@@ -1567,23 +1598,16 @@ private:
         Node* evaluated_val = Eval(val_node);
         
         // 若 evaluated_val 是來自環境變數 (例如 define b a)，為了讓 eqv? 能判斷為 #t 必須共用指標，因此不 Clone
-        bool from_env = false;
-        for (auto& x : environment) {
-            if (x.second == evaluated_val) {
-                from_env = true;
-                break;
-            }
-        }
         // 其他情況必須 CloneTree，避免與當前語法樹一同被 FreeTree 釋放
-        if (!from_env) {
+        if (!curr_env.LookupNode(evaluated_val)) {
             evaluated_val = CloneTree(evaluated_val);
         }
 
         // 2. 存入環境變數
         string var_name = get<string>(var_node->token.value);
         bool is_special = false;
-        for (int i = 0; i < 8; i++) {
-            if (special_forms[i] == var_name) {
+        for (auto& i: special_forms) {
+            if (i == var_name) {
                 is_special = true;
                 break;
             }
@@ -1594,14 +1618,14 @@ private:
             return nullptr;
         }
 
-        if (environment.count(var_name)) {
-            Node* old_val = environment[var_name];
+        if (curr_env.LookupVar(var_name) != nullptr) {
+            Node* old_val = curr_env.LookupVar(var_name);
             if (old_val->token.type == Primitive) {
                 throw EvalError(define_format, "", exp);
                 return nullptr;
             }
             bool found = false;
-            for (auto& x: environment) {
+            for (auto& x: curr_env.vars) {
                 if (x.first != var_name && x.second == old_val) {
                     found = true;
                     break;
@@ -1610,7 +1634,7 @@ private:
             }
             if (!found) FreeTree(old_val); // 清理舊值避免 Memory Leak
         }
-        environment[var_name] = evaluated_val;
+        curr_env.Define(var_name, evaluated_val);
         define_node = evaluated_val;
         
         cout << var_name << " defined\n";
@@ -1808,7 +1832,7 @@ private:
             return nullptr;
         }
         
-        return CreateLambdaNode(params, body);
+        Evaluator lam = Evaluator();
     }
 
 
@@ -1818,14 +1842,6 @@ public:
 
     // 建構子：初始化全域環境與 Special Form 名稱
     Evaluator() {
-        string prims[] = {
-            "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
-            "cons", "car", "cdr", "list", "pair?", "null?", 
-            "integer?", "real?", "number?", "symbol?", "string?", 
-            "boolean?", "atom?", "eqv?", "equal?", "not", "string-append", 
-            "string>?", "string<?", "string=?", "exit"
-        };
-
         special_forms[0] = "clean-environment";
         special_forms[1] = "define";
         special_forms[2] = "quote";
@@ -1836,7 +1852,7 @@ public:
         special_forms[7] = "or";
         
         for (string p : prims) {
-            environment[p] = CreatePrimitiveNode(p);
+            curr_env.Define(p, CreatePrimitiveNode(p));
         }
     }
     
@@ -1848,8 +1864,9 @@ public:
             Token t = node->token;
             if (t.type == Symbol) {
                 string name = get<string>(t.value);
-                if (environment.count(name)) {
-                    return environment[name]; // 變數查詢
+                Node* val = curr_env.LookupVar(name);
+                if (val != nullptr) {
+                    return val; // 變數查詢
                 } else {
                     throw EvalError(unbound_symbol, name);
                 }
