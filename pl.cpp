@@ -176,7 +176,10 @@ Node* CloneTree(Node* node) {
     if (node->is_closure) {
         ClosureNode* c = node->closure;
         ClosureNode* new_c = new ClosureNode(CloneTree(c->params), CloneTree(c->body), c->env);
-        return new Node(new_c);
+        Node* new_node = new Node(new_c);
+        new_node->is_closure = true;
+        new_node->token = Token(Closure, "lambda");
+        return new_node;
     }
     if (node->is_atom) return new Node(node->token);
     return new Node(CloneTree(node->left), CloneTree(node->right));
@@ -637,14 +640,15 @@ private:
     }
 
     // 建立 Closure 節點 (lambda 定義的匿名函式)
-    Node* CreateClosureNode(Node* params, Node* body) {
+    Node* CreateClosureNode(Node* params, Node* body, string name) {
         ClosureNode* closure = new ClosureNode(CloneTree(params), CloneTree(body), curr_env);
         Node* n = new Node(closure);
         n->is_closure = true;
-        n->token = Token(Closure, "<closure>");
+        n->token = Token(Closure, name);
         return n;
     }
 
+    // 執行 Closure：將實際參數綁定到定義時的環境，然後評估函式主體
     Node* ApplyClosure(Node* op, Node* args) {
         Node* params = op->closure->params;
         int param_count = ListLength(params);
@@ -1694,7 +1698,7 @@ private:
                 return nullptr;
             }
             var_name = get<string>(function_name->token.value);
-            evaluated_val = CreateClosureNode(var_node->right, val_list);
+            evaluated_val = CreateClosureNode(var_node->right, val_list, var_name);
         }
 
         bool is_special = false;
@@ -1950,7 +1954,7 @@ private:
         }
 
         // 建立 Lambda 節點，將參數列表與函式主體存入其中
-        return CreateClosureNode(params, body);
+        return CreateClosureNode(params, body, "lambda");
     }
 
 
@@ -2074,8 +2078,7 @@ void PrintSExp(Node* node, int M) {
         else if (t.type == Float) printf("%.3f\n", get<float>(t.value));
         else if (t.type == Nil) cout << "nil\n";
         else if (t.type == T) cout << "#t\n";
-        else if (t.type == Primitive) cout << "#<procedure " << get<string>(t.value) << ">\n";
-        else if (t.type == Closure) cout << "#<closure>\n";
+        else if (t.type == Primitive || t.type == Closure) cout << "#<procedure " << get<string>(t.value) << ">\n";
         else cout << get<string>(t.value) << "\n"; // Symbol 或 String
     } else {
         // 這是一個 Pair (括號結構)
