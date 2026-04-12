@@ -116,7 +116,8 @@ enum EvalError_Type {
     level_of_clean_environment, // clean-environment 不在最外層 (Top-level) 被呼叫
     level_of_define,            // define 不在最外層 (Top-level) 被呼叫
     level_of_exit,              // exit 不在最外層 (Top-level) 被呼叫
-    lambda_format               // lambda 語法格式錯誤
+    lambda_format,              // lambda 語法格式錯誤
+    let_format                  // let 語法格式錯誤
 };
 
 // 記錄錯誤的 Exception 結構
@@ -525,8 +526,43 @@ public:
 class Evaluator {
 private:
     Environment* curr_env;
-    string special_forms [8];
+    string special_forms [10];
     
+    void CheckSymbolList (Node* node, Node* exp, EvalError_Type error_type) {
+        // 檢查參數列表是否合法 (必須是以 nil 結尾的正規串列，且每個元素都是 Symbol)
+        if (!(node->is_atom && node->token.type == Nil)) {
+            if (node->is_atom) {
+                throw EvalError(error_type, "", exp);
+                return;
+            }
+            Node* current = node;
+            while (current != nullptr && current->token.type != Nil) {
+                if (current->is_atom) {
+                    throw EvalError(error_type, "", exp);
+                    return ;
+                }
+                Node* param = current->left;
+                if (param == nullptr || !param->is_atom || param->token.type != Symbol) {
+                    throw EvalError(error_type, "", exp);
+                    return;
+                }
+                for (const string& prim : prims) {
+                    if (get<string>(param->token.value) == prim) {
+                        throw EvalError(error_type, "", exp);
+                        return;
+                    }
+                }
+                for (auto& s : special_forms) {
+                    if (get<string>(param->token.value) == s) {
+                        throw EvalError(error_type, "", exp);
+                        return;
+                    }
+                }
+                current = current->right;
+            }
+        }
+    }
+
     // 計算 List 的長度，若遇到非正規 List (未以 nil 結尾) 則回傳 -1
     int ListLength(Node* list) {
         int count = 0;
@@ -641,7 +677,12 @@ private:
 
     // 建立 Closure 節點 (lambda 定義的匿名函式)
     Node* CreateClosureNode(Node* params, Node* body, string name) {
-        ClosureNode* closure = new ClosureNode(CloneTree(params), CloneTree(body), curr_env);
+        // Lambda 應該捕捉父環境而不是當前環境（防止捕捉 let 的臨時變數）
+        Environment* capture_env = curr_env;
+        if (curr_env != nullptr && curr_env->parent != nullptr) {
+            capture_env = curr_env->parent;
+        }
+        ClosureNode* closure = new ClosureNode(CloneTree(params), CloneTree(body), capture_env);
         Node* n = new Node(closure);
         n->is_closure = true;
         n->token = Token(Closure, name);
@@ -1684,6 +1725,12 @@ private:
             var_name = get<string>(var_node->token.value);
             Node* val_node = val_list->left;
             evaluated_val = Eval(val_node);
+            
+            // 檢查定義的值是否有 return value
+            if (evaluated_val == nullptr) {
+                throw EvalError(no_return_value, "", val_node);
+            }
+            
             if (!curr_env->LookupNode(evaluated_val)) {
                 evaluated_val = CloneTree(evaluated_val);
             }
@@ -1692,11 +1739,9 @@ private:
                 throw EvalError(define_format, "", exp);
                 return nullptr;
             }
+            
             Node* function_name = var_node->left;
-            if (function_name == nullptr || !function_name->is_atom || function_name->token.type != Symbol) {
-                throw EvalError(define_format, "", exp);
-                return nullptr;
-            }
+            CheckSymbolList(var_node, exp, define_format);
             var_name = get<string>(function_name->token.value);
             evaluated_val = CreateClosureNode(var_node->right, val_list, var_name);
         }
@@ -1709,6 +1754,13 @@ private:
             }
         }
 
+        for (auto& p: prims) {
+            if (p == var_name) {
+                is_special = true;
+                break;
+            }
+        }
+
         if (is_special) {
             throw EvalError(define_format, "", exp);
             return nullptr;
@@ -1716,7 +1768,6 @@ private:
 
         if (curr_env->LookupVar(var_name) != nullptr) {
             Node* old_val = curr_env->LookupVar(var_name);
-            // ...
             bool found = false;
             for (auto& x: curr_env->vars) {
                 if (x.first != var_name && x.second == old_val) {
@@ -1925,38 +1976,148 @@ private:
             return nullptr;
         }
         
-        // 檢查參數列表是否合法 (必須是以 nil 結尾的正規串列，且每個元素都是 Symbol)
-        if (!(params->is_atom && params->token.type == Nil)) {
-            if (params->is_atom) {
-                throw EvalError(lambda_format, "", exp);
-                return nullptr;
-            }
-            map<string, bool> seen;
-            Node* current = params;
-            while (current != nullptr && current->token.type != Nil) {
-                if (current->is_atom) {
-                    throw EvalError(lambda_format, "", exp);
-                    return nullptr;
-                }
-                Node* param = current->left;
-                if (param == nullptr || !param->is_atom || param->token.type != Symbol) {
-                    throw EvalError(lambda_format, "", exp);
-                    return nullptr;
-                }
-                string param_name = get<string>(param->token.value);
-                if (seen.count(param_name)) {
-                    throw EvalError(lambda_format, "", exp);
-                    return nullptr;
-                }
-                seen[param_name] = true;
-                current = current->right;
-            }
-        }
+        CheckSymbolList(params, exp, lambda_format);
 
         // 建立 Lambda 節點，將參數列表與函式主體存入其中
         return CreateClosureNode(params, body, "lambda");
     }
 
+
+    Node* HandleLet(Node* exp) {
+        Node* args = exp->right;
+        // let 至少要有 bindings + 一個 body
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(let_format, "", exp);
+        }
+
+        Node* bindings = args->left;   // ((x e1) (y e2) ...)
+        Node* body = args->right;      // (body1 body2 ...)
+        if (body == nullptr || body->is_atom) {
+            throw EvalError(let_format, "", exp);
+        }
+
+        // 檢查 bindings 必須是 proper list
+        if (bindings == nullptr) {
+            throw EvalError(let_format, "", exp);
+        }
+        if (!(bindings->is_atom && bindings->token.type == Nil) && ListLength(bindings) == -1) {
+            throw EvalError(let_format, "", exp);
+        }
+
+        // 暫存參數名與初始化值（先在舊環境求值）
+        vector<string> names;
+        vector<Node*> values;
+        Environment* saved_env = curr_env;
+        Environment* init_env = saved_env;
+        if (saved_env != nullptr && saved_env->parent != nullptr) {
+            init_env = saved_env->parent;
+        }
+
+        Node* curr = bindings;
+        while (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
+            if (curr->is_atom) {
+                throw EvalError(let_format, "", exp);
+            }
+
+            Node* binding = curr->left;  // (x e)
+            if (binding == nullptr || binding->is_atom) {
+                throw EvalError(let_format, "", exp);
+            }
+            // binding 必須剛好兩個元素
+            if (ListLength(binding) != 2) {
+                throw EvalError(let_format, "", exp);
+            }
+
+            Node* var_node = binding->left;
+            Node* expr_node = binding->right->left;
+
+            if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) {
+                throw EvalError(let_format, "", exp);
+            }
+
+            string name = get<string>(var_node->token.value);
+
+            for (const string& prim : prims) {
+                    if (get<string>(var_node->token.value) == prim) {
+                        throw EvalError(let_format, "", exp);
+                        return nullptr;
+                    }
+                }
+            for (auto& s : special_forms) {
+                if (get<string>(var_node->token.value) == s) {
+                    throw EvalError(let_format, "", exp);
+                    return nullptr;
+                }
+            }
+
+            int found = -1;
+            for (int i = 0; i < (int)names.size(); i++) {
+                if (names[i] == name) {
+                    found = i;
+                }
+            }
+
+            
+            // let 的 initializer 在外層環境算
+            Node* init_val = nullptr;
+            Environment* eval_saved_env = curr_env;
+            curr_env = init_env;
+            try {
+                init_val = Eval(expr_node);
+            } catch (EvalError& e) {
+                curr_env = eval_saved_env;
+                // 如果是 no_return_value 錯誤，重新拋但改為指向 expr_node
+                if (e.type == no_return_value) {
+                    throw EvalError(no_return_value, "", expr_node);
+                }
+                throw;
+            } catch (...) {
+                curr_env = eval_saved_env;
+                throw;
+            }
+            curr_env = eval_saved_env;
+            
+            // 檢查 initializer 是否有 return value
+            if (init_val == nullptr) {
+                throw EvalError(no_return_value, "", expr_node);
+            }
+            
+            if (found == -1) {
+                names.push_back(name);
+                values.push_back(init_val);
+            } else {
+                values[found] = init_val;
+            }
+            curr = curr->right;
+        }
+
+        // 建立新作用域並一次綁定
+        Environment* let_env = new Environment(saved_env);
+
+        for (int i = 0; i < (int)names.size(); i++) {
+            let_env->Define(names[i], CloneTree(values[i]));
+        }
+
+        // 在新作用域跑 body，回傳最後一個值
+        curr_env = let_env;
+        Node* result = nullptr;
+        try {
+            Node* body_curr = body;
+            while (body_curr != nullptr && !(body_curr->is_atom && body_curr->token.type == Nil)) {
+                if (body_curr->is_atom) {
+                    throw EvalError(let_format, "", exp);
+                }
+                result = Eval(body_curr->left);
+                body_curr = body_curr->right;
+            }
+        } catch (...) {
+            curr_env = saved_env;
+            throw;
+        }
+
+        curr_env = saved_env;
+        return result;
+    }
 
 public:
     Node* root;         // 當前正在求值的根節點 (用於檢查 define/exit 的層級)
@@ -1973,6 +2134,8 @@ public:
         special_forms[5] = "begin";
         special_forms[6] = "and";
         special_forms[7] = "or";
+        special_forms[8] = "lambda";
+        special_forms[9] = "let";
         
         for (string p : prims) {
             curr_env->Define(p, CreatePrimitiveNode(p));
@@ -2017,6 +2180,7 @@ public:
                 if (op == "or")   return HandleOr(node);
                 if (op == "exit") return HandleExit(node);
                 if (op == "lambda") return HandleLambda(node);
+                if (op == "let") return HandleLet(node);
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
@@ -2031,7 +2195,6 @@ public:
             int arg_count = ListLength(node->right);
             if (evaluated_op->token.type == Primitive) {
                 string op_name = get<string>(evaluated_op->token.value);
-                
                 if (op_name == "not" || op_name == "car" || op_name == "cdr" || 
                     op_name == "pair?" || op_name == "null?" || op_name == "integer?" || 
                     op_name == "real?" || op_name == "number?" || op_name == "symbol?" || 
@@ -2047,7 +2210,7 @@ public:
             } else if (evaluated_op->token.type == Closure) {
                 int param_count = ListLength(evaluated_op->closure->params);
                 if (param_count != arg_count) {
-                    throw EvalError(incorrect_num_of_args, "lambda");
+                    throw EvalError(incorrect_num_of_args, get<string>(evaluated_op->token.value));
                 }
             }
 
@@ -2153,13 +2316,17 @@ void EvalErrorHandler(EvalError& e) {
     } else if (e.type == lambda_format) {
         cout << "ERROR (LAMBDA format) : ";
         PrintSExp(e.err_node, 0);
-    }
+    } else if (e.type == let_format) {
+        cout << "ERROR (LET format) : ";
+        PrintSExp(e.err_node, 0);
+    } 
 }
 
 // ParseError 處理器：根據不同錯誤類型印出相應訊息
-void PraseErrorHandler(ParseError& e) {
+void ParseErrorHandler(ParseError& e) {
     if (e.type == no_more_input) {
         cout << "ERROR (no more input) : END-OF-FILE encountered\n";
+        cout << "Thanks for using OurScheme!\n";
     } else if (e.type == no_closing_quote) {
         cout << "ERROR (no closing quote) : END-OF-LINE encountered at Line " << e.line << " Column " << e.col << "\n";
     } else if (e.type == unexpected_token_atom) {
@@ -2201,7 +2368,7 @@ int main() {
             }
         } catch (ParseError& e) {
             // 捕捉各種剖析錯誤並印出相應訊息
-            PraseErrorHandler(e);
+            ParseErrorHandler(e);
             FreeTree(root);
             if (e.type == no_more_input) {
                 break;
