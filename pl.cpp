@@ -88,7 +88,7 @@ struct Node {
 // 定義內建函式名稱的陣列，方便在評估階段辨識是否為內建函式
 static const string prims[] = {
     "+", "-", "*", "/", "=", "<", ">", "<=", ">=", 
-    "cons", "car", "cdr", "list", "pair?", "null?", 
+    "cons", "car", "cdr", "list", "list?", "pair?", "null?", 
     "integer?", "real?", "number?", "symbol?", "string?", 
     "boolean?", "atom?", "eqv?", "equal?", "not", "string-append", 
     "string>?", "string<?", "string=?", "exit"
@@ -1314,6 +1314,26 @@ private:
         return Cons(evaluated_car, evaluated_cdr);    // 重新組裝回傳
     }
 
+    // 判斷是否為 List (包含 nil，但不含 ())
+    Node* EvalLst(Node* args) {
+        if (args == nullptr || args->is_atom || args->token.type == Nil) {
+            return CreateNilNode();
+        }
+
+        Node* target = args->left;
+        if (target == nullptr) return CreateNilNode();
+
+        // 如果是 Atom，只有 nil 被視為 list
+        if (target->is_atom) {
+            if (target->token.type == Nil) return CreateTrueNode();
+            return CreateNilNode();
+        }
+
+        // 如果是 Pair，檢查是否為 proper list（以 nil 結尾）
+        if (ListLength(target) == -1) return CreateNilNode();
+        return CreateTrueNode();
+    }
+
     // 判斷是否為 Pair (包含 List，但不含 ()/nil)
     Node* EvalPair(Node* args) {
         if (args == nullptr || args->is_atom || args->token.type == Nil) {
@@ -1678,6 +1698,7 @@ private:
             else if (op_name == "car") return EvalCar(args);
             else if (op_name == "cdr") return EvalCdr(args);
             else if (op_name == "list") return args;
+            else if (op_name == "list?") return EvalLst(args);
             else if (op_name == "pair?") return EvalPair(args);
             else if (op_name == "null?") return EvalNull(args);
             else if (op_name == "integer?") return EvalInteger(args);
@@ -2190,7 +2211,7 @@ public:
                 if (op_name == "not" || op_name == "car" || op_name == "cdr" || 
                     op_name == "pair?" || op_name == "null?" || op_name == "integer?" || 
                     op_name == "real?" || op_name == "number?" || op_name == "symbol?" || 
-                    op_name == "string?" || op_name == "boolean?" || op_name == "atom?") {
+                    op_name == "string?" || op_name == "boolean?" || op_name == "atom?"  || op_name == "list?") {
                     if (arg_count != 1) throw EvalError(incorrect_num_of_args, op_name);
                 } else if (op_name == "cons" || op_name == "eqv?" || op_name == "equal?") {
                     if (arg_count != 2) throw EvalError(incorrect_num_of_args, op_name);
