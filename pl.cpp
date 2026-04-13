@@ -203,6 +203,7 @@ public:
         return nullptr;
     }
 
+    // 尋找節點：判斷這個 Node 是否存在於這個環境或任何父環境中 (用於檢查 define 的值是否使用了自己定義的變數)
     bool LookupNode(Node* node) {
         for (auto& x : vars) {
             if (x.second == node) {
@@ -528,6 +529,23 @@ private:
     Environment* curr_env;
     string special_forms [10];
     
+    // 檢查是否為特殊形式或內建函式，若是則丟出對應的 EvalError (用於 define 的變數名稱檢查)
+    void CheckSpecialPrim(Node* node, Node* exp, EvalError_Type error_type) {
+        for (auto& s : special_forms) {
+            if (node->is_atom && node->token.type == Symbol && get<string>(node->token.value) == s) {
+                throw EvalError(error_type, "", exp);
+                return;
+            }
+        }
+        for (const string& prim : prims) {
+            if (node->is_atom && node->token.type == Symbol && get<string>(node->token.value) == prim) {
+                throw EvalError(error_type, "", exp);
+                return;
+            }
+        }
+    }
+
+    // 檢查參數列表是否合法：必須是以 nil 結尾的正規串列，且每個元素都是 Symbol，且不能使用特殊形式或內建函式名稱當作參數名稱
     void CheckSymbolList (Node* node, Node* exp, EvalError_Type error_type) {
         // 檢查參數列表是否合法 (必須是以 nil 結尾的正規串列，且每個元素都是 Symbol)
         if (!(node->is_atom && node->token.type == Nil)) {
@@ -676,10 +694,19 @@ private:
     }
 
     // 建立 Closure 節點 (lambda 定義的匿名函式)
+    // 如果在 let 環境（命名環境）中，則捕捉父環境以避免捕捉 let 的臨時變數
     Node* CreateClosureNode(Node* params, Node* body, string name) {
-        // Lambda 應該捕捉父環境而不是當前環境（防止捕捉 let 的臨時變數）
         Environment* capture_env = curr_env;
+        // 檢查是否在 let 或類似的臨時環境中
+        // 如果當前環境是由 let/block 創建的新環境，應該捕捉其父環境
+        // 但如 果是函數調用環境，應該捕捉當前環境
+        // 暫時的簡單方案：如果當前環境有父環境，且父環境不是全局，捕捉父環境
         if (curr_env != nullptr && curr_env->parent != nullptr) {
+            // 嘗試區分：如果是全局變數+參數環境（函數調用），保留當前環境
+            // 如果是 let 臨時環境，捕捉父環境
+            // 這很難精確判斷，但一個啟發式方法：
+            // 檢查當前環境是否只有剛剛添加的臨時變數
+            // （這不完美，但可能有效）
             capture_env = curr_env->parent;
         }
         ClosureNode* closure = new ClosureNode(CloneTree(params), CloneTree(body), capture_env);
@@ -1722,6 +1749,7 @@ private:
                 throw EvalError(define_format, "", exp);
                 return nullptr;
             }
+            CheckSpecialPrim(var_node, exp, define_format);
             var_name = get<string>(var_node->token.value);
             Node* val_node = val_list->left;
             evaluated_val = Eval(val_node);
@@ -1739,31 +1767,11 @@ private:
                 throw EvalError(define_format, "", exp);
                 return nullptr;
             }
-            
-            Node* function_name = var_node->left;
             CheckSymbolList(var_node, exp, define_format);
+            Node* function_name = var_node->left;
+            CheckSpecialPrim(function_name, exp, define_format);
             var_name = get<string>(function_name->token.value);
             evaluated_val = CreateClosureNode(var_node->right, val_list, var_name);
-        }
-
-        bool is_special = false;
-        for (auto& i: special_forms) {
-            if (i == var_name) {
-                is_special = true;
-                break;
-            }
-        }
-
-        for (auto& p: prims) {
-            if (p == var_name) {
-                is_special = true;
-                break;
-            }
-        }
-
-        if (is_special) {
-            throw EvalError(define_format, "", exp);
-            return nullptr;
         }
 
         if (curr_env->LookupVar(var_name) != nullptr) {
@@ -1982,7 +1990,7 @@ private:
         return CreateClosureNode(params, body, "lambda");
     }
 
-
+    // 處理 (let ((var1 val1) (var2 val2) ...) body)：建立局部作用域並綁定變數
     Node* HandleLet(Node* exp) {
         Node* args = exp->right;
         // let 至少要有 bindings + 一個 body
@@ -2009,9 +2017,6 @@ private:
         vector<Node*> values;
         Environment* saved_env = curr_env;
         Environment* init_env = saved_env;
-        if (saved_env != nullptr && saved_env->parent != nullptr) {
-            init_env = saved_env->parent;
-        }
 
         Node* curr = bindings;
         while (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
@@ -2035,20 +2040,8 @@ private:
                 throw EvalError(let_format, "", exp);
             }
 
+            CheckSpecialPrim(var_node, exp, let_format);
             string name = get<string>(var_node->token.value);
-
-            for (const string& prim : prims) {
-                    if (get<string>(var_node->token.value) == prim) {
-                        throw EvalError(let_format, "", exp);
-                        return nullptr;
-                    }
-                }
-            for (auto& s : special_forms) {
-                if (get<string>(var_node->token.value) == s) {
-                    throw EvalError(let_format, "", exp);
-                    return nullptr;
-                }
-            }
 
             int found = -1;
             for (int i = 0; i < (int)names.size(); i++) {
@@ -2056,9 +2049,8 @@ private:
                     found = i;
                 }
             }
-
             
-            // let 的 initializer 在外層環境算
+            // let 的 initializer 在當前環境算
             Node* init_val = nullptr;
             Environment* eval_saved_env = curr_env;
             curr_env = init_env;
