@@ -117,7 +117,8 @@ enum EvalError_Type {
     level_of_define,            // define 不在最外層 (Top-level) 被呼叫
     level_of_exit,              // exit 不在最外層 (Top-level) 被呼叫
     lambda_format,              // lambda 語法格式錯誤
-    let_format                  // let 語法格式錯誤
+    let_format,                  // let 語法格式錯誤
+    unbound_parameter,          // lambda 定義的參數在呼叫時沒有被綁定到值
 };
 
 // 記錄錯誤的 Exception 結構
@@ -191,9 +192,10 @@ Node* CloneTree(Node* node) {
 class Environment {
 public:
     map<string, Node*> vars;
+    Node* curr_root; // 當前正在評估的 AST 根節點 (用於錯誤報告)
     Environment* parent;
 
-    Environment(Environment* p = nullptr) : parent(p) {}
+    Environment(Environment* p = nullptr, Node* root = nullptr) : parent(p), curr_root(root) {}
 
 
     // 尋找變數：先找自己，找不到再往上找 parent
@@ -717,7 +719,7 @@ private:
     }
 
     // 執行 Closure：將實際參數綁定到定義時的環境，然後評估函式主體
-    Node* ApplyClosure(Node* op, Node* args) {
+    Node* ApplyClosure(Node* op, Node* args, Node* call_expr = nullptr) {
         Node* params = op->closure->params;
         int param_count = ListLength(params);
         int arg_count = ListLength(args);
@@ -726,7 +728,7 @@ private:
         }
 
         Environment* saved_env = curr_env;
-        Environment* call_env = new Environment(op->closure->env);
+        Environment* call_env = new Environment(op->closure->env, call_expr);
 
         Node* param_cursor = params;
         Node* arg_cursor = args;
@@ -1860,7 +1862,11 @@ private:
             if (len == 4) {
                 return Eval(val_second);
             } else {
-                throw EvalError(no_return_value, "", exp);
+                if (curr_env->curr_root == root) {
+                    throw EvalError(no_return_value, "", curr_env->curr_root);
+                } else {
+                    throw EvalError(unbound_parameter, "", curr_env->curr_root);
+                }
             }
         }
         return Eval(val_first);
@@ -1923,7 +1929,11 @@ private:
             }
             args = args->right;
         }
-        throw EvalError(no_return_value, "", exp);
+        if (curr_env->curr_root == root) {
+            throw EvalError(no_return_value, "", curr_env->curr_root);
+        } else {
+            throw EvalError(unbound_parameter, "", curr_env->curr_root);
+        }
         return nullptr;
     }
     
@@ -2105,7 +2115,7 @@ private:
         }
 
         // 建立新作用域並一次綁定
-        Environment* let_env = new Environment(saved_env);
+        Environment* let_env = new Environment(saved_env, exp);
 
         for (int i = 0; i < (int)names.size(); i++) {
             let_env->Define(names[i], CloneTree(values[i]));
@@ -2133,12 +2143,12 @@ private:
     }
 
 public:
-    Node* root;         // 當前正在求值的根節點 (用於檢查 define/exit 的層級)
-    Node* define_node;  // 紀錄 define 綁定的節點 (避免被 FreeTree 釋放)
+    Node* root = nullptr;         // 當前正在求值的根節點 (用於檢查 define/exit 的層級)
+    Node* define_node = nullptr;  // 紀錄 define 綁定的節點 (避免被 FreeTree 釋放)
 
     // 建構子：初始化全域環境與 Special Form 名稱
     Evaluator() {
-        curr_env = new Environment();
+        curr_env = new Environment(nullptr, nullptr);
         special_forms[0] = "clean-environment";
         special_forms[1] = "define";
         special_forms[2] = "quote";
@@ -2158,6 +2168,10 @@ public:
     // 遞迴求值核心：接收一個 AST 節點並回傳其求值結果
     Node* Eval(Node* node) {
         if (node == nullptr) return nullptr;
+
+        if (node == root && curr_env != nullptr) {
+            curr_env->curr_root = root;
+        }
 
         if (node->is_atom) { //處理 Atom
             Token t = node->token;
@@ -2229,10 +2243,10 @@ public:
 
             // 2. 遞迴求出所有參數的值
             Node* evaluated_args = EvalList(node->right); // EvalList 是一個輔助函式，它會走訪串列，對每一個 Node 呼叫 Eval()
-            
+
             // 3. 把算好的參數交給操作符去執行 (這個步驟在 Lisp 中稱為 Apply)
             if (evaluated_op->token.type == Closure) {
-                return ApplyClosure(evaluated_op, evaluated_args);
+                return ApplyClosure(evaluated_op, evaluated_args, node);
             }
             return Apply(evaluated_op, evaluated_args); 
         }
@@ -2332,7 +2346,10 @@ void EvalErrorHandler(EvalError& e) {
     } else if (e.type == let_format) {
         cout << "ERROR (LET format) : ";
         PrintSExp(e.err_node, 0);
-    } 
+    } else if (e.type == unbound_parameter) {
+        cout << "ERROR (unbound parameter) : ";
+        PrintSExp(e.err_node, 0);
+    }
 }
 
 // ParseError 處理器：根據不同錯誤類型印出相應訊息
