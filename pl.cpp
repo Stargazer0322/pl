@@ -745,12 +745,18 @@ private:
         try {
             Node* body_cursor = op->closure->body;
             while (body_cursor != nullptr && body_cursor->token.type != Nil) {
-                if (body_cursor->right == nullptr || body_cursor->right->token.type == Nil) {
-                    last_flag.erase(op);
-                } else {
+                if (body_cursor->right != nullptr && body_cursor->right->token.type != Nil) {
                     last_flag.insert({op, true});
+                } else {
+                    last_flag.erase(op);
                 }
-                result = Eval(body_cursor->left);
+                try {
+                    result = Eval(body_cursor->left);
+                } catch (...) {
+                    last_flag.erase(op);
+                    throw;
+                }
+                last_flag.erase(op);
                 body_cursor = body_cursor->right;
             }
         } catch (...) {
@@ -1871,10 +1877,10 @@ private:
                 if (last_flag.size() != 0) {
                     return nullptr; // 在 if 的 else 分支沒有提供 else-expr 時，當條件不成立且不是最後一個表達式，直接回傳 nullptr 不丟錯
                 }
-                if (curr_env->curr_root == root) {
-                    throw EvalError(no_return_value, "", curr_env->curr_root);
-                } else {
+                if (curr_env->curr_root != root) {
                     throw EvalError(unbound_parameter, "", curr_env->curr_root);
+                } else {
+                    throw EvalError(no_return_value, "", curr_env->curr_root);
                 }
             }
         }
@@ -1931,12 +1937,18 @@ private:
                 Node* result = nullptr;
                 // 循序執行分支內的所有語句，回傳最後一個結果
                 while (exprs != nullptr && exprs->token.type != Nil) {
-                    if (exprs->right == nullptr || exprs->right->token.type == Nil) {
-                        last_flag.erase(exp);
-                    } else {
+                    if (exprs->right != nullptr && exprs->right->token.type != Nil) {
                         last_flag.insert({exp, true});
+                    } else {
+                        last_flag.erase(exp);
                     }
-                    result = Eval(exprs->left);
+                    try {
+                        result = Eval(exprs->left);
+                    } catch (...) {
+                        last_flag.erase(exp);
+                        throw;
+                    }
+                    last_flag.erase(exp);
                     exprs = exprs->right;
                 }
                 return result;
@@ -1946,10 +1958,10 @@ private:
         if (last_flag.size() != 0) {
             return nullptr; // 在 if 的 else 分支沒有提供 else-expr 時，當條件不成立且不是最後一個表達式，直接回傳 nullptr 不丟錯
         }
-        if (curr_env->curr_root == root) {
-            throw EvalError(no_return_value, "", curr_env->curr_root);
-        } else {
+        if (curr_env->curr_root != root) {
             throw EvalError(unbound_parameter, "", curr_env->curr_root);
+        } else {
+            throw EvalError(no_return_value, "", curr_env->curr_root);
         }
         return nullptr;
     }
@@ -1964,12 +1976,18 @@ private:
         Node* result = nullptr;
         // 循序執行分支內的所有語句，回傳最後一個結果
         while (exprs != nullptr && exprs->token.type != Nil) {
-            if (exprs->right == nullptr || exprs->right->token.type == Nil) {
-                last_flag.erase(exp);
-            } else {
+            if (exprs->right != nullptr && exprs->right->token.type != Nil) {
                 last_flag.insert({exp, true});
+            } else {
+                last_flag.erase(exp);
             }
-            result = Eval(exprs->left);
+            try {
+                result = Eval(exprs->left);
+            } catch (...) {
+                last_flag.erase(exp);
+                throw;
+            }
+            last_flag.erase(exp);
             exprs = exprs->right;
         }
         return result;
@@ -1986,12 +2004,18 @@ private:
                 //throw EvalError(cond_format, "", exp);
                 return nullptr;
             }
-            if (args->right == nullptr || args->right->token.type == Nil) {
-                last_flag.erase(exp);
-            } else {
+            if (args->right != nullptr && args->right->token.type != Nil) {
                 last_flag.insert({exp, true});
+            } else {
+                last_flag.erase(exp);
             }
-            result = Eval(clause);
+            try {
+                result = Eval(clause);
+            } catch (...) {
+                last_flag.erase(exp);
+                throw;
+            }
+            last_flag.erase(exp);
             if (result == nullptr) {
                 throw EvalError(unbound_condition, "", clause);
                 return nullptr;
@@ -2192,7 +2216,13 @@ private:
                 if (body_curr->is_atom) {
                     throw EvalError(let_format, "", exp);
                 }
+                if (body_curr->right != nullptr && body_curr->right->token.type != Nil) {
+                    last_flag.insert({body_curr->left, true});
+                } else {
+                    last_flag.erase(body_curr->left);
+                }
                 result = Eval(body_curr->left);
+                last_flag.erase(body_curr->left);
                 body_curr = body_curr->right;
             }
         } catch (...) {
