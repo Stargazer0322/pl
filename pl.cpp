@@ -530,6 +530,8 @@ public:
 class Evaluator {
 private:
     Environment* curr_env;
+    int arg_eval_depth = 0; // 目前是否處於函式呼叫參數求值階段 (>0 代表是)
+    int op_eval_depth = 0;  // 目前是否處於函式呼叫 operator 求值階段 (>0 代表是)
     string special_forms [10];
     
     // 檢查是否為特殊形式或內建函式，若是則丟出對應的 EvalError (用於 define 的變數名稱檢查)
@@ -739,7 +741,6 @@ private:
             param_cursor = param_cursor->right;
             arg_cursor = arg_cursor->right;
         }
-
         curr_env = call_env;
         Node* result = nullptr;
         try {
@@ -751,6 +752,7 @@ private:
                     last_flag.erase(op);
                 }
                 try {
+
                     result = Eval(body_cursor->left);
                 } catch (...) {
                     last_flag.erase(op);
@@ -1323,7 +1325,15 @@ private:
         if (args == nullptr || args->token.type == Nil) {
             return args; // 到底了，回傳 Nil
         }
-        Node* evaluated_car = Eval(args->left);       // 算左邊的單一參數
+        Node* evaluated_car = nullptr;
+        arg_eval_depth++;
+        try {
+            evaluated_car = Eval(args->left);         // 算左邊的單一參數
+        } catch (...) {
+            arg_eval_depth--;
+            throw;
+        }
+        arg_eval_depth--;
         Node* evaluated_cdr = EvalList(args->right);  // 遞迴處理剩下的串列
         return Cons(evaluated_car, evaluated_cdr);    // 重新組裝回傳
     }
@@ -1877,7 +1887,7 @@ private:
                 if (last_flag.size() != 0) {
                     return nullptr; // 在 if 的 else 分支沒有提供 else-expr 時，當條件不成立且不是最後一個表達式，直接回傳 nullptr 不丟錯
                 }
-                if (curr_env->curr_root != root) {
+                if (arg_eval_depth > 0 && op_eval_depth == 0) {
                     throw EvalError(unbound_parameter, "", curr_env->curr_root);
                 } else {
                     throw EvalError(no_return_value, "", curr_env->curr_root);
@@ -1958,7 +1968,7 @@ private:
         if (last_flag.size() != 0) {
             return nullptr; // 在 if 的 else 分支沒有提供 else-expr 時，當條件不成立且不是最後一個表達式，直接回傳 nullptr 不丟錯
         }
-        if (curr_env->curr_root != root) {
+        if (arg_eval_depth > 0 && op_eval_depth == 0) {
             throw EvalError(unbound_parameter, "", curr_env->curr_root);
         } else {
             throw EvalError(no_return_value, "", curr_env->curr_root);
@@ -2021,7 +2031,7 @@ private:
                 return nullptr;
             }
             // 如果評估結果是 #f (Nil)，則提早結束並回傳 #f (短路求值)
-            if (result != nullptr && result->is_atom && result->token.type == Nil) {
+            if (result != nullptr && result->token.type == Nil) {
                 return CreateNilNode();
             }
             args = args->right;
@@ -2032,14 +2042,34 @@ private:
     // 處理 (or exp1 exp2 ...)：短路求值，遇到非 #f 則提早結束回傳該值
     Node* HandleOr(Node* exp) {
         Node* args = exp->right;
-        Node* result = EvalList(args);
-        Node* curr = result;
-        while (curr != nullptr && curr->token.type != Nil) {
-            if (curr->left->is_atom && curr->left->token.type == Nil) {
-                curr = curr->right;
-                continue;
+        Node* result = CreateNilNode(); 
+        while (args != nullptr && args->token.type != Nil) {
+            Node* clause = args->left;
+            if (clause == nullptr) {
+                //throw EvalError(cond_format, "", exp);
+                return nullptr;
             }
-            return curr->left;
+            if (args->right != nullptr && args->right->token.type != Nil) {
+                last_flag.insert({exp, true});
+            } else {
+                last_flag.erase(exp);
+            }
+            try {
+                result = Eval(clause);
+            } catch (...) {
+                last_flag.erase(exp);
+                throw;
+            }
+            last_flag.erase(exp);
+            if (result == nullptr) {
+                throw EvalError(unbound_condition, "", clause);
+                return nullptr;
+            }
+            // 如果評估結果是 #f (Nil)，則提早結束並回傳 #f (短路求值)
+            if (result != nullptr && result->token.type != Nil) {
+                return result;
+            }
+            args = args->right;
         }
         return CreateNilNode();
     }
@@ -2305,7 +2335,15 @@ public:
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
             // 1. 先遞迴求出真正的操作符 (例如把 '+' 這個 Symbol 解析成真正的加法函式指標)
-            Node* evaluated_op = Eval(first_element); 
+            Node* evaluated_op = nullptr;
+            op_eval_depth++;
+            try {
+                evaluated_op = Eval(first_element);
+            } catch (...) {
+                op_eval_depth--;
+                throw;
+            }
+            op_eval_depth--;
             
             // 提早檢查是否為有效函式，以及參數數量，讓這些錯誤先於參數評估 (unbound symbol) 被發現
             if (evaluated_op == nullptr || !(evaluated_op->is_atom && (evaluated_op->token.type == Primitive || evaluated_op->token.type == Closure))) {
