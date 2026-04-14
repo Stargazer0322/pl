@@ -117,8 +117,9 @@ enum EvalError_Type {
     level_of_define,            // define 不在最外層 (Top-level) 被呼叫
     level_of_exit,              // exit 不在最外層 (Top-level) 被呼叫
     lambda_format,              // lambda 語法格式錯誤
-    let_format,                  // let 語法格式錯誤
+    let_format,                 // let 語法格式錯誤
     unbound_parameter,          // lambda 定義的參數在呼叫時沒有被綁定到值
+    unbound_condition,          // if/cond 的條件表達式評估結果不是布林值
 };
 
 // 記錄錯誤的 Exception 結構
@@ -744,6 +745,11 @@ private:
         try {
             Node* body_cursor = op->closure->body;
             while (body_cursor != nullptr && body_cursor->token.type != Nil) {
+                if (body_cursor->right == nullptr || body_cursor->right->token.type == Nil) {
+                    last_flag.erase(op);
+                } else {
+                    last_flag.insert({op, true});
+                }
                 result = Eval(body_cursor->left);
                 body_cursor = body_cursor->right;
             }
@@ -1862,6 +1868,9 @@ private:
             if (len == 4) {
                 return Eval(val_second);
             } else {
+                if (last_flag.size() != 0) {
+                    return nullptr; // 在 if 的 else 分支沒有提供 else-expr 時，當條件不成立且不是最後一個表達式，直接回傳 nullptr 不丟錯
+                }
                 if (curr_env->curr_root == root) {
                     throw EvalError(no_return_value, "", curr_env->curr_root);
                 } else {
@@ -1922,12 +1931,20 @@ private:
                 Node* result = nullptr;
                 // 循序執行分支內的所有語句，回傳最後一個結果
                 while (exprs != nullptr && exprs->token.type != Nil) {
+                    if (exprs->right == nullptr || exprs->right->token.type == Nil) {
+                        last_flag.erase(exp);
+                    } else {
+                        last_flag.insert({exp, true});
+                    }
                     result = Eval(exprs->left);
                     exprs = exprs->right;
                 }
                 return result;
             }
             args = args->right;
+        }
+        if (last_flag.size() != 0) {
+            return nullptr; // 在 if 的 else 分支沒有提供 else-expr 時，當條件不成立且不是最後一個表達式，直接回傳 nullptr 不丟錯
         }
         if (curr_env->curr_root == root) {
             throw EvalError(no_return_value, "", curr_env->curr_root);
@@ -1943,9 +1960,19 @@ private:
             throw EvalError(incorrect_num_of_args, "begin");
             return nullptr;
         }
-        Node* args = exp->right;
-        Node* result = EvalList(args);
-        return GetLastList(result);
+        Node* exprs = exp->right;
+        Node* result = nullptr;
+        // 循序執行分支內的所有語句，回傳最後一個結果
+        while (exprs != nullptr && exprs->token.type != Nil) {
+            if (exprs->right == nullptr || exprs->right->token.type == Nil) {
+                last_flag.erase(exp);
+            } else {
+                last_flag.insert({exp, true});
+            }
+            result = Eval(exprs->left);
+            exprs = exprs->right;
+        }
+        return result;
     }
 
     // 處理 (and exp1 exp2 ...)：短路求值，遇到 #f 則提早結束
@@ -1959,7 +1986,16 @@ private:
                 //throw EvalError(cond_format, "", exp);
                 return nullptr;
             }
+            if (args->right == nullptr || args->right->token.type == Nil) {
+                last_flag.erase(exp);
+            } else {
+                last_flag.insert({exp, true});
+            }
             result = Eval(clause);
+            if (result == nullptr) {
+                throw EvalError(unbound_condition, "", clause);
+                return nullptr;
+            }
             // 如果評估結果是 #f (Nil)，則提早結束並回傳 #f (短路求值)
             if (result != nullptr && result->is_atom && result->token.type == Nil) {
                 return CreateNilNode();
@@ -2043,13 +2079,39 @@ private:
             throw EvalError(let_format, "", exp);
         }
 
+        Node* curr = bindings;
+        while (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
+            if (curr->is_atom) {
+                throw EvalError(let_format, "", exp);
+            }
+
+            Node* binding = curr->left;  // (x e)
+            if (binding == nullptr || binding->is_atom) {
+                throw EvalError(let_format, "", exp);
+            }
+            // binding 必須剛好兩個元素
+            if (ListLength(binding) != 2) {
+                throw EvalError(let_format, "", exp);
+            }
+
+            Node* var_node = binding->left;
+            Node* expr_node = binding->right->left;
+
+            if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) {
+                throw EvalError(let_format, "", exp);
+            }
+
+            CheckSpecialPrim(var_node, exp, let_format);
+            curr = curr->right;
+        }
+
         // 暫存參數名與初始化值（先在舊環境求值）
         vector<string> names;
         vector<Node*> values;
         Environment* saved_env = curr_env;
         Environment* init_env = saved_env;
 
-        Node* curr = bindings;
+        curr = bindings;
         while (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
             if (curr->is_atom) {
                 throw EvalError(let_format, "", exp);
@@ -2145,6 +2207,7 @@ private:
 public:
     Node* root = nullptr;         // 當前正在求值的根節點 (用於檢查 define/exit 的層級)
     Node* define_node = nullptr;  // 紀錄 define 綁定的節點 (避免被 FreeTree 釋放)
+    map<Node*, bool> last_flag; // 用於 cond/if 中判斷是否為最後一個表達式，以決定沒有 return value 時是否丟錯
 
     // 建構子：初始化全域環境與 Special Form 名稱
     Evaluator() {
@@ -2349,6 +2412,9 @@ void EvalErrorHandler(EvalError& e) {
     } else if (e.type == unbound_parameter) {
         cout << "ERROR (unbound parameter) : ";
         PrintSExp(e.err_node, 0);
+    } else if (e.type == unbound_condition) {
+        cout << "ERROR (unbound condition) : ";
+        PrintSExp(e.err_node, 0);
     }
 }
 
@@ -2388,6 +2454,7 @@ int main() {
 
             try {
                 evaluator.root = root;
+                evaluator.last_flag.clear();
                 Node* eval_result = evaluator.Eval(root);
 
                 // 列印樹狀結構
