@@ -530,8 +530,6 @@ public:
 class Evaluator {
 private:
     Environment* curr_env;
-    int arg_eval_depth = 0; // 目前是否處於函式呼叫參數求值階段 (>0 代表是)
-    int op_eval_depth = 0;  // 目前是否處於函式呼叫 operator 求值階段 (>0 代表是)
     string special_forms [10];
     
     // 檢查是否為特殊形式或內建函式，若是則丟出對應的 EvalError (用於 define 的變數名稱檢查)
@@ -741,30 +739,34 @@ private:
             param_cursor = param_cursor->right;
             arg_cursor = arg_cursor->right;
         }
+        
         curr_env = call_env;
         Node* result = nullptr;
+        
+        // 【修改】：管理 lambda 本體的 require_return 狀態
+        bool saved_req = require_return;
+        
         try {
             Node* body_cursor = op->closure->body;
             while (body_cursor != nullptr && body_cursor->token.type != Nil) {
-                if (body_cursor->right != nullptr && body_cursor->right->token.type != Nil) {
-                    last_flag.insert({op, true});
-                } else {
-                    last_flag.erase(op);
-                }
+                bool is_last = (body_cursor->right == nullptr || (body_cursor->right->is_atom && body_cursor->right->token.type == Nil));
+                require_return = is_last ? saved_req : false;
+                
                 try {
-
                     result = Eval(body_cursor->left);
                 } catch (...) {
-                    last_flag.erase(op);
+                    require_return = saved_req;
                     throw;
                 }
-                last_flag.erase(op);
                 body_cursor = body_cursor->right;
             }
         } catch (...) {
+            require_return = saved_req;
             curr_env = saved_env;
             throw;
         }
+        
+        require_return = saved_req;
         curr_env = saved_env;
         return result;
     }
@@ -1323,19 +1325,26 @@ private:
     // 評估 list：將多個元素組成一個以 Nil 結尾的正規串列
     Node* EvalList(Node* args) {
         if (args == nullptr || args->token.type == Nil) {
-            return args; // 到底了，回傳 Nil
+            return args; 
         }
         Node* evaluated_car = nullptr;
-        arg_eval_depth++;
+        
+        bool saved_req = require_return; 
+        require_return = true;           
+        arg_eval_depth++; // 【修改】：進入參數評估
+        
         try {
-            evaluated_car = Eval(args->left);         // 算左邊的單一參數
+            evaluated_car = Eval(args->left);
         } catch (...) {
             arg_eval_depth--;
+            require_return = saved_req;
             throw;
         }
-        arg_eval_depth--;
-        Node* evaluated_cdr = EvalList(args->right);  // 遞迴處理剩下的串列
-        return Cons(evaluated_car, evaluated_cdr);    // 重新組裝回傳
+        arg_eval_depth--; // 【修改】：離開參數評估
+        require_return = saved_req;
+        
+        Node* evaluated_cdr = EvalList(args->right);
+        return Cons(evaluated_car, evaluated_cdr); 
     }
 
     // 判斷是否為 List (包含 nil，但不含 ())
@@ -1847,46 +1856,44 @@ private:
         int len = ListLength(exp);
         if (len != 3 && len != 4) {
             throw EvalError(incorrect_num_of_args, "if");
-            return nullptr;
         }
-        
         Node* args = exp->right;
-        if (args == nullptr || args->is_atom) { 
-            throw EvalError(incorrect_num_of_args, "if");
-            return nullptr;
-        }
+        if (args == nullptr || args->is_atom) throw EvalError(incorrect_num_of_args, "if");
 
         Node* cond_node = args->left;
-        if (cond_node == nullptr) { 
-            throw EvalError(incorrect_num_of_args, "if");
-            return nullptr;
-        }
+        if (cond_node == nullptr) throw EvalError(incorrect_num_of_args, "if");
 
         Node* val_list = args->right;
-        if (val_list == nullptr || val_list->is_atom) {
-            throw EvalError(incorrect_num_of_args, "if");
-            return nullptr;
-        }
+        if (val_list == nullptr || val_list->is_atom) throw EvalError(incorrect_num_of_args, "if");
 
         Node* val_first = val_list->left;
-        if (val_first == nullptr) {
-            throw EvalError(incorrect_num_of_args, "if");
-            return nullptr;
-        }
+        if (val_first == nullptr) throw EvalError(incorrect_num_of_args, "if");
 
         Node* val_second = nullptr;
-        if (len == 4) {
-            val_second = val_list->right->left;
-        }
+        if (len == 4) val_second = val_list->right->left;
 
-        Node* evaluated_cond = Eval(cond_node);
+        // 【修改】：評估條件時，若無回傳值則轉為 unbound_condition
+        bool saved_req = require_return;
+        require_return = true;
+        Node* evaluated_cond = nullptr;
+        try {
+            evaluated_cond = Eval(cond_node);
+        } catch (EvalError& e) {
+            if (e.type == no_return_value) { // 【修改】：只攔截 no_return_value 轉為 condition 錯誤
+                require_return = saved_req;
+                throw EvalError(unbound_condition, "", cond_node);
+            }
+            require_return = saved_req;
+            throw e; // 如果是 unbound_parameter 則原封不動往上丟
+        }
+        require_return = saved_req;
+
         if (evaluated_cond != nullptr && evaluated_cond->is_atom && evaluated_cond->token.type == Nil) {
             if (len == 4) {
                 return Eval(val_second);
             } else {
-                if (last_flag.size() != 0) {
-                    return nullptr; // 在 if 的 else 分支沒有提供 else-expr 時，當條件不成立且不是最後一個表達式，直接回傳 nullptr 不丟錯
-                }
+                if (!require_return) return nullptr; 
+                // 【修改】：利用 Depth 判斷是參數還是一般語句
                 if (arg_eval_depth > 0 && op_eval_depth == 0) {
                     throw EvalError(unbound_parameter, "", curr_env->curr_root);
                 } else {
@@ -1899,178 +1906,162 @@ private:
 
     // 處理 (cond (test1 expr1) (test2 expr2) ... (else exprN))
     Node* HandleCond(Node* exp) {
-        if (ListLength(exp) <= 1) {
-            throw EvalError(cond_format, "", exp);
-            return nullptr;
-        }
+        if (ListLength(exp) <= 1) throw EvalError(cond_format, "", exp);
         Node* args = exp->right;
 
         while (args != nullptr && args->token.type != Nil) {
             Node* clause = args->left;
-            if (clause == nullptr || clause->is_atom) {
-                throw EvalError(cond_format, "", exp);
-            }
-            
-            Node* condition = clause->left; // 取得條件
+            if (clause == nullptr || clause->is_atom) throw EvalError(cond_format, "", exp);
             Node* exprs = clause->right;
-            if (exprs == nullptr || (exprs->is_atom && exprs->token.type == Nil)) {
-                throw EvalError(cond_format, "", exp);
-                return nullptr;
-            }
+            if (exprs == nullptr || (exprs->is_atom && exprs->token.type == Nil)) throw EvalError(cond_format, "", exp);
             args = args->right;
         }
 
         args = exp->right;
         while (args != nullptr && args->token.type != Nil) {
             Node* clause = args->left;
-            if (clause == nullptr || clause->is_atom) {
-                throw EvalError(cond_format, "", exp);
-            }
-            
-            Node* condition = clause->left; // 取得條件
-            bool is_last = (args->right == nullptr || args->right->is_atom && args->right->token.type == Nil);
+            Node* condition = clause->left; 
+            bool is_last = (args->right == nullptr || (args->right->is_atom && args->right->token.type == Nil));
             bool is_else = (condition->is_atom && condition->token.type == Symbol && get<string>(condition->token.value) == "else" && is_last);
             
             Node* eval_cond = nullptr;
             if (!is_else) {
-                eval_cond = Eval(condition); // 評估條件
+                bool saved_req = require_return;
+                require_return = true;
+                try {
+                    eval_cond = Eval(condition);
+                } catch (EvalError& e) {
+                    if (e.type == no_return_value) { // 【修改】
+                        require_return = saved_req;
+                        throw EvalError(unbound_condition, "", condition);
+                    }
+                    require_return = saved_req;
+                    throw e;
+                }
+                require_return = saved_req;
             }
 
-            // Scheme 中只要條件不為 #f (Nil)，就視為成立
             if (is_else || (eval_cond != nullptr && !(eval_cond->is_atom && eval_cond->token.type == Nil))) {
                 Node* exprs = clause->right;
-                if (exprs == nullptr || (exprs->is_atom && exprs->token.type == Nil)) {
-                    throw EvalError(cond_format, "", exp);
-                    return nullptr;
-                }
-                
                 Node* result = nullptr;
-                // 循序執行分支內的所有語句，回傳最後一個結果
+                bool saved_req = require_return; 
+                
                 while (exprs != nullptr && exprs->token.type != Nil) {
-                    if (exprs->right != nullptr && exprs->right->token.type != Nil) {
-                        last_flag.insert({exp, true});
-                    } else {
-                        last_flag.erase(exp);
-                    }
+                    bool expr_is_last = (exprs->right == nullptr || (exprs->right->is_atom && exprs->right->token.type == Nil));
+                    require_return = expr_is_last ? saved_req : false;
                     try {
                         result = Eval(exprs->left);
                     } catch (...) {
-                        last_flag.erase(exp);
+                        require_return = saved_req;
                         throw;
                     }
-                    last_flag.erase(exp);
                     exprs = exprs->right;
                 }
+                require_return = saved_req;
                 return result;
             }
             args = args->right;
         }
-        if (last_flag.size() != 0) {
-            return nullptr; // 在 if 的 else 分支沒有提供 else-expr 時，當條件不成立且不是最後一個表達式，直接回傳 nullptr 不丟錯
-        }
+        
+        // 【修改】：找不到符合的分支時的判斷
+        if (!require_return) return nullptr; 
         if (arg_eval_depth > 0 && op_eval_depth == 0) {
             throw EvalError(unbound_parameter, "", curr_env->curr_root);
         } else {
             throw EvalError(no_return_value, "", curr_env->curr_root);
         }
-        return nullptr;
     }
     
     // 處理 (begin exp1 exp2 ...)：循序求值，回傳最後一個結果
     Node* HandleBegin(Node* exp) {
         if (ListLength(exp) <= 1) {
             throw EvalError(incorrect_num_of_args, "begin");
-            return nullptr;
         }
         Node* exprs = exp->right;
         Node* result = nullptr;
-        // 循序執行分支內的所有語句，回傳最後一個結果
+        
+        // 【修改】：只要求最後一個表達式回傳值
+        bool saved_req = require_return; 
+        
         while (exprs != nullptr && exprs->token.type != Nil) {
-            if (exprs->right != nullptr && exprs->right->token.type != Nil) {
-                last_flag.insert({exp, true});
-            } else {
-                last_flag.erase(exp);
-            }
+            bool is_last = (exprs->right == nullptr || (exprs->right->is_atom && exprs->right->token.type == Nil));
+            require_return = is_last ? saved_req : false;
+            
             try {
                 result = Eval(exprs->left);
             } catch (...) {
-                last_flag.erase(exp);
+                require_return = saved_req;
                 throw;
             }
-            last_flag.erase(exp);
             exprs = exprs->right;
         }
+        require_return = saved_req;
         return result;
     }
 
-    // 處理 (and exp1 exp2 ...)：短路求值，遇到 #f 則提早結束
+    // 處理 (and exp1 exp2 ...)：短路求值
     Node* HandleAnd(Node* exp) {
         Node* args = exp->right;
-        // Scheme 中，不帶參數的 (and) 應回傳 #t
         Node* result = CreateTrueNode(); 
+        
+        bool saved_req = require_return; 
+        
         while (args != nullptr && args->token.type != Nil) {
             Node* clause = args->left;
-            if (clause == nullptr) {
-                //throw EvalError(cond_format, "", exp);
-                return nullptr;
-            }
-            if (args->right != nullptr && args->right->token.type != Nil) {
-                last_flag.insert({exp, true});
-            } else {
-                last_flag.erase(exp);
-            }
+            if (clause == nullptr) return nullptr;
+            
+            require_return = true; 
             try {
                 result = Eval(clause);
-            } catch (...) {
-                last_flag.erase(exp);
-                throw;
+            } catch (EvalError& e) {
+                if (e.type == no_return_value) { // 【修改】：只將 no_return_value 轉為 condition 錯誤
+                    require_return = saved_req;
+                    throw EvalError(unbound_condition, "", clause);
+                }
+                require_return = saved_req;
+                throw e; // unbound_parameter 會直接穿透出去
             }
-            last_flag.erase(exp);
-            if (result == nullptr) {
-                throw EvalError(unbound_condition, "", clause);
-                return nullptr;
-            }
-            // 如果評估結果是 #f (Nil)，則提早結束並回傳 #f (短路求值)
+            
             if (result != nullptr && result->token.type == Nil) {
+                require_return = saved_req;
                 return CreateNilNode();
             }
             args = args->right;
         }
+        require_return = saved_req; 
         return result;
     }
 
-    // 處理 (or exp1 exp2 ...)：短路求值，遇到非 #f 則提早結束回傳該值
+    // 處理 (or exp1 exp2 ...)：短路求值
     Node* HandleOr(Node* exp) {
         Node* args = exp->right;
         Node* result = CreateNilNode(); 
+        
+        bool saved_req = require_return; 
+        
         while (args != nullptr && args->token.type != Nil) {
             Node* clause = args->left;
-            if (clause == nullptr) {
-                //throw EvalError(cond_format, "", exp);
-                return nullptr;
-            }
-            if (args->right != nullptr && args->right->token.type != Nil) {
-                last_flag.insert({exp, true});
-            } else {
-                last_flag.erase(exp);
-            }
+            if (clause == nullptr) return nullptr;
+            
+            require_return = true; 
             try {
                 result = Eval(clause);
-            } catch (...) {
-                last_flag.erase(exp);
-                throw;
+            } catch (EvalError& e) {
+                if (e.type == no_return_value) { // 【修改】：只將 no_return_value 轉為 condition 錯誤
+                    require_return = saved_req;
+                    throw EvalError(unbound_condition, "", clause);
+                }
+                require_return = saved_req;
+                throw e; // unbound_parameter 會直接穿透出去
             }
-            last_flag.erase(exp);
-            if (result == nullptr) {
-                throw EvalError(unbound_condition, "", clause);
-                return nullptr;
-            }
-            // 如果評估結果是 #f (Nil)，則提早結束並回傳 #f (短路求值)
+            
             if (result != nullptr && result->token.type != Nil) {
+                require_return = saved_req;
                 return result;
             }
             args = args->right;
         }
+        require_return = saved_req; 
         return CreateNilNode();
     }
 
@@ -2231,7 +2222,7 @@ private:
         }
 
         // 建立新作用域並一次綁定
-        Environment* let_env = new Environment(saved_env, exp);
+        Environment* let_env = new Environment(saved_env, curr_env->curr_root);
 
         for (int i = 0; i < (int)names.size(); i++) {
             let_env->Define(names[i], CloneTree(values[i]));
@@ -2240,26 +2231,28 @@ private:
         // 在新作用域跑 body，回傳最後一個值
         curr_env = let_env;
         Node* result = nullptr;
+        bool saved_req = require_return; // 【修改】
+
         try {
             Node* body_curr = body;
             while (body_curr != nullptr && !(body_curr->is_atom && body_curr->token.type == Nil)) {
                 if (body_curr->is_atom) {
                     throw EvalError(let_format, "", exp);
                 }
-                if (body_curr->right != nullptr && body_curr->right->token.type != Nil) {
-                    last_flag.insert({body_curr->left, true});
-                } else {
-                    last_flag.erase(body_curr->left);
-                }
+                
+                bool is_last = (body_curr->right == nullptr || (body_curr->right->is_atom && body_curr->right->token.type == Nil));
+                require_return = is_last ? saved_req : false;
+                
                 result = Eval(body_curr->left);
-                last_flag.erase(body_curr->left);
                 body_curr = body_curr->right;
             }
         } catch (...) {
+            require_return = saved_req;
             curr_env = saved_env;
             throw;
         }
 
+        require_return = saved_req;
         curr_env = saved_env;
         return result;
     }
@@ -2267,7 +2260,10 @@ private:
 public:
     Node* root = nullptr;         // 當前正在求值的根節點 (用於檢查 define/exit 的層級)
     Node* define_node = nullptr;  // 紀錄 define 綁定的節點 (避免被 FreeTree 釋放)
-    map<Node*, bool> last_flag; // 用於 cond/if 中判斷是否為最後一個表達式，以決定沒有 return value 時是否丟錯
+    
+    bool require_return = true;   // 用於 cond/if/begin 中判斷當下語句是否需要回傳值
+    int arg_eval_depth = 0;       // 【恢復】：用於記錄參數深度
+    int op_eval_depth = 0;        // 【恢復】：用於記錄操作符深度
 
     // 建構子：初始化全域環境與 Special Form 名稱
     Evaluator() {
@@ -2334,16 +2330,16 @@ public:
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
-            // 1. 先遞迴求出真正的操作符 (例如把 '+' 這個 Symbol 解析成真正的加法函式指標)
+            // 1. 先遞迴求出真正的操作符
+            op_eval_depth++; // 【修改】：進入操作符評估
             Node* evaluated_op = nullptr;
-            op_eval_depth++;
             try {
                 evaluated_op = Eval(first_element);
             } catch (...) {
                 op_eval_depth--;
                 throw;
             }
-            op_eval_depth--;
+            op_eval_depth--; // 【修改】：離開操作符評估
             
             // 提早檢查是否為有效函式，以及參數數量，讓這些錯誤先於參數評估 (unbound symbol) 被發現
             if (evaluated_op == nullptr || !(evaluated_op->is_atom && (evaluated_op->token.type == Primitive || evaluated_op->token.type == Closure))) {
@@ -2522,7 +2518,7 @@ int main() {
 
             try {
                 evaluator.root = root;
-                evaluator.last_flag.clear();
+                evaluator.require_return = true; // 每次新的 S-exp 預設需要回傳值，特殊表達式內部會根據情況調整
                 Node* eval_result = evaluator.Eval(root);
 
                 // 列印樹狀結構
