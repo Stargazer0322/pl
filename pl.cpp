@@ -17,7 +17,7 @@ struct ClosureNode;
 enum Token_Type {
     Symbol,         // 符號 (例如變數名稱、函式名稱)
     Int,            // 整數數值
-    Float,          // 浮點數數值
+    Double,          // 浮點數數值
     String,         // 字串數值
     Nil,            // 空串列或布林假值 (nil, #f, ())
     T,              // 布林真值 (#t)
@@ -37,19 +37,19 @@ struct Token {
     string original_value;             // 程式碼中原始的字串內容
     int line;                          // 所在的邏輯行號
     int col;                           // 所在的邏輯欄位 (Column)
-    variant<int, float, string> value; // 轉型後的實際數值 (整數、浮點數或字串)
+    variant<int, double, string> value; // 轉型後的實際數值 (整數、浮點數或字串)
 
     // 建構子：預設建立 ErrorToken
     Token() : type(ErrorToken), line(0), col(0) {}
     // 建構子：根據傳入的 Token_Type 與字串自動轉換出對應的 value 型態
     Token(Token_Type t, string s) : type(t), original_value(s), line(0), col(0) {
         if (t == Int) value = stoi(s);
-        else if (t == Float) value = stof(s);
+        else if (t == Double) value = stod(s);
         else value = s;
     }
     Token(Token_Type t, string s, int l, int c) : type(t), original_value(s), line(l), col(c) {
         if (t == Int) value = stoi(s);
-        else if (t == Float) value = stof(s);
+        else if (t == Double) value = stod(s);
         else value = s;
     }
 };
@@ -261,7 +261,7 @@ private:
     }
 
     // 判斷字串是否為合法的浮點數格式 (包含單一小數點)
-    bool IsFloat(string s) {
+    bool IsDouble(string s) {
         if (s.empty()) return false;
         int start = 0;
         if (s[0] == '+' || s[0] == '-') {
@@ -426,7 +426,7 @@ public:
             if (seq == "t" || seq == "#t") return Token(T, "#t", start_line, start_col);
             if (seq == "nil" || seq == "#f" || seq == "()") return Token(Nil, "nil", start_line, start_col);
             if (IsInt(seq)) return Token(Int, seq, start_line, start_col);
-            if (IsFloat(seq)) return Token(Float, seq, start_line, start_col);
+            if (IsDouble(seq)) return Token(Double, seq, start_line, start_col);
 
             return Token(Symbol, seq, start_line, start_col);
         }
@@ -598,19 +598,6 @@ private:
         return count;
     }
 
-    // 取得串列中的最後一個元素 (car)
-    // 用途：用於取得 begin 等序列執行後，最後一個表達式的回傳值
-    Node* GetLastList(Node* list) {
-        if (list == nullptr || (list->is_atom && list->token.type == Nil)) {
-            return list;
-        }
-        Node* current = list;
-        while (current->right != nullptr && !(current->right->is_atom && current->right->token.type == Nil)) {
-            current = current->right;
-        }
-        return current->left;
-    }
-
     // 深度比對兩個節點結構及其內容是否完全相等 (用於 equal?)
     bool IsEqualNode(Node* a, Node* b) {
         // 若指標相同，直接回傳 true (同一個物件一定相等)
@@ -624,7 +611,7 @@ private:
             
             // 根據不同型別比對存放的實際值
             if (a->token.type == Int) return get<int>(a->token.value) == get<int>(b->token.value);
-            if (a->token.type == Float) return get<float>(a->token.value) == get<float>(b->token.value);
+            if (a->token.type == Double) return get<double>(a->token.value) == get<double>(b->token.value);
             if (a->token.type == String || a->token.type == Symbol) return get<string>(a->token.value) == get<string>(b->token.value);
             if (a->token.type == Nil || a->token.type == T) return true;
             
@@ -657,10 +644,10 @@ private:
     }
 
     // 建立浮點數節點
-    Node* CreateFloatNode(float val) {
+    Node* CreateDoubleNode(double val) {
         Node* n = new Node();
         n->is_atom = true;
-        n->token = Token(Float, to_string(val));
+        n->token = Token(Double, to_string(val));
         return n;
     }
 
@@ -697,19 +684,10 @@ private:
     }
 
     // 建立 Closure 節點 (lambda 定義的匿名函式)
-    // 如果在 let 環境（命名環境）中，則捕捉父環境以避免捕捉 let 的臨時變數
+    // 在區域環境中建立 closure 時，改捕捉父環境
     Node* CreateClosureNode(Node* params, Node* body, string name) {
         Environment* capture_env = curr_env;
-        // 檢查是否在 let 或類似的臨時環境中
-        // 如果當前環境是由 let/block 創建的新環境，應該捕捉其父環境
-        // 但如 果是函數調用環境，應該捕捉當前環境
-        // 暫時的簡單方案：如果當前環境有父環境，且父環境不是全局，捕捉父環境
         if (curr_env != nullptr && curr_env->parent != nullptr) {
-            // 嘗試區分：如果是全局變數+參數環境（函數調用），保留當前環境
-            // 如果是 let 臨時環境，捕捉父環境
-            // 這很難精確判斷，但一個啟發式方法：
-            // 檢查當前環境是否只有剛剛添加的臨時變數
-            // （這不完美，但可能有效）
             capture_env = curr_env->parent;
         }
         ClosureNode* closure = new ClosureNode(CloneTree(params), CloneTree(body), capture_env);
@@ -743,7 +721,7 @@ private:
         curr_env = call_env;
         Node* result = nullptr;
         
-        // 【修改】：最乾淨的 body 執行
+        // 依序執行 body，回傳最後一個結果
         try {
             Node* body_cursor = op->closure->body;
             while (body_cursor != nullptr && body_cursor->token.type != Nil) {
@@ -797,26 +775,26 @@ private:
 
     // 評估加法 (+)：支援多個參數，若包含浮點數則結果轉為浮點數
     Node* EvalAdd(Node* args) {
-        bool is_float = false;
-        float f_sum = 0.0f;
+        bool is_double = false;
+        double f_sum = 0.0f;
         int i_sum = 0;
         Node* current = args;
         
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "+", arg_val);
             }
 
-            if (arg_val->token.type == Float) {
-                if (!is_float) { 
-                    is_float = true; 
+            if (arg_val->token.type == Double) {
+                if (!is_double) { 
+                    is_double = true; 
                     f_sum = i_sum; 
                 }
-                f_sum += get<float>(arg_val->token.value);
+                f_sum += get<double>(arg_val->token.value);
             } else {
-                if (is_float) {
+                if (is_double) {
                     f_sum += get<int>(arg_val->token.value);
                 } else {
                     i_sum += get<int>(arg_val->token.value);
@@ -825,27 +803,27 @@ private:
             current = current->right; // 走到下一個算好的參數
         }
         
-        if (is_float) return CreateFloatNode(f_sum);
+        if (is_double) return CreateDoubleNode(f_sum);
         return CreateIntNode(i_sum);
     }
 
     // 評估減法 (-)：支援多個參數
     Node* EvalSub(Node* args) {
-        bool is_float = false;
-        float f_sum = 0.0f;
+        bool is_double = false;
+        double f_sum = 0.0f;
         int i_sum = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "-", arg_val);
             }
             
-            if (arg_val->token.type == Float) {
-                is_float = true;
-                f_sum = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                is_double = true;
+                f_sum = get<double>(arg_val->token.value);
             } else {
                 i_sum = get<int>(arg_val->token.value);
             }
@@ -855,18 +833,18 @@ private:
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "-", arg_val);
             }
             
-            if (arg_val->token.type == Float) {
-                if (!is_float) { 
-                    is_float = true; 
+            if (arg_val->token.type == Double) {
+                if (!is_double) { 
+                    is_double = true; 
                     f_sum = i_sum; 
                 }
-                f_sum -= get<float>(arg_val->token.value);
+                f_sum -= get<double>(arg_val->token.value);
             } else {
-                if (is_float) {
+                if (is_double) {
                     f_sum -= get<int>(arg_val->token.value);
                 } else {
                     i_sum -= get<int>(arg_val->token.value);
@@ -875,32 +853,32 @@ private:
             current = current->right; // 走到下一個算好的參數
         }
         
-        if (is_float) return CreateFloatNode(f_sum);
+        if (is_double) return CreateDoubleNode(f_sum);
         return CreateIntNode(i_sum);
     }
 
     // 評估乘法 (*)：支援多個參數
     Node* EvalMul(Node* args) {
-        bool is_float = false;
-        float f_sum = 1.0f; // 乘法初始值修正為 1
+        bool is_double = false;
+        double f_sum = 1.0f;
         int i_sum = 1;
         Node* current = args;
         
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "*", arg_val);
             }
             
-            if (arg_val->token.type == Float) {
-                if (!is_float) { 
-                    is_float = true; 
+            if (arg_val->token.type == Double) {
+                if (!is_double) { 
+                    is_double = true; 
                     f_sum = i_sum; 
                 }
-                f_sum *= get<float>(arg_val->token.value);
+                f_sum *= get<double>(arg_val->token.value);
             } else {
-                if (is_float) {
+                if (is_double) {
                     f_sum *= get<int>(arg_val->token.value);
                 } else {
                     i_sum *= get<int>(arg_val->token.value);
@@ -909,27 +887,27 @@ private:
             current = current->right; // 走到下一個算好的參數
         }
         
-        if (is_float) return CreateFloatNode(f_sum);
+        if (is_double) return CreateDoubleNode(f_sum);
         return CreateIntNode(i_sum);
     }
 
     // 評估除法 (/)：支援多個參數，並檢查除以零的錯誤
     Node* EvalDiv(Node* args) {
-        bool is_float = false;
-        float f_sum = 0.0f;
+        bool is_double = false;
+        double f_sum = 0.0f;
         int i_sum = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "/", arg_val);
             }
             
-            if (arg_val->token.type == Float) {
-                is_float = true;
-                f_sum = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                is_double = true;
+                f_sum = get<double>(arg_val->token.value);
             } else {
                 i_sum = get<int>(arg_val->token.value);
             }
@@ -939,22 +917,22 @@ private:
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
             
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "/", arg_val);
             }
             
-            if (arg_val->token.type == Float) {
-                if (!is_float) { 
-                    is_float = true; 
+            if (arg_val->token.type == Double) {
+                if (!is_double) { 
+                    is_double = true; 
                     f_sum = i_sum; 
                 }
-                f_sum /= get<float>(arg_val->token.value);
+                f_sum /= get<double>(arg_val->token.value);
             } else {
-                if (is_float) {
+                if (is_double) {
                     f_sum /= get<int>(arg_val->token.value);
                 } else {
                     int val = get<int>(arg_val->token.value);
-                    if (val != 0) { // 避免除以 0 崩潰
+                    if (val != 0) {
                         i_sum /= val;
                     } else {
                         throw EvalError(division_by_zero);
@@ -964,7 +942,7 @@ private:
             current = current->right; // 走到下一個算好的參數
         }
         
-        if (is_float) return CreateFloatNode(f_sum);
+        if (is_double) return CreateDoubleNode(f_sum);
         return CreateIntNode(i_sum);
     }
 
@@ -972,7 +950,7 @@ private:
     Node* EvalEqu(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
-            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Double)) {
                 throw EvalError(incorrect_arg_type, "=", check_curr->left);
             }
             check_curr = check_curr->right;
@@ -980,19 +958,19 @@ private:
 
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
-        bool prev_is_float = false;
-        float f_prev = 0.0f;
+        bool prev_is_double = false;
+        double f_prev = 0.0f;
         int i_prev = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "=", arg_val);
             }
-            if (arg_val->token.type == Float) {
-                prev_is_float = true;
-                f_prev = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                prev_is_double = true;
+                f_prev = get<double>(arg_val->token.value);
             } else {
                 i_prev = get<int>(arg_val->token.value);
                 f_prev = i_prev;
@@ -1002,28 +980,28 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "=", arg_val);
             }
-            float f_curr = 0.0f;
+            double f_curr = 0.0f;
             int i_curr = 0;
-            bool curr_is_float = false;
+            bool curr_is_double = false;
 
-            if (arg_val->token.type == Float) {
-                curr_is_float = true;
-                f_curr = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                curr_is_double = true;
+                f_curr = get<double>(arg_val->token.value);
             } else {
                 i_curr = get<int>(arg_val->token.value);
                 f_curr = i_curr;
             }
 
-            if (prev_is_float || curr_is_float) {
+            if (prev_is_double || curr_is_double) {
                 if (f_prev < f_curr || f_prev > f_curr) return CreateNilNode(); 
             } else {
                 if (i_prev < i_curr || i_prev > i_curr) return CreateNilNode();
             }
 
-            prev_is_float = curr_is_float;
+            prev_is_double = curr_is_double;
             f_prev = f_curr;
             i_prev = i_curr;
 
@@ -1037,7 +1015,7 @@ private:
     Node* EvalLess(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
-            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Double)) {
                 throw EvalError(incorrect_arg_type, "<", check_curr->left);
             }
             check_curr = check_curr->right;
@@ -1045,19 +1023,19 @@ private:
 
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
-        bool prev_is_float = false;
-        float f_prev = 0.0f;
+        bool prev_is_double = false;
+        double f_prev = 0.0f;
         int i_prev = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "<", arg_val);
             }
-            if (arg_val->token.type == Float) {
-                prev_is_float = true;
-                f_prev = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                prev_is_double = true;
+                f_prev = get<double>(arg_val->token.value);
             } else {
                 i_prev = get<int>(arg_val->token.value);
                 f_prev = i_prev;
@@ -1067,28 +1045,28 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "<", arg_val);
             }
-            float f_curr = 0.0f;
+            double f_curr = 0.0f;
             int i_curr = 0;
-            bool curr_is_float = false;
+            bool curr_is_double = false;
 
-            if (arg_val->token.type == Float) {
-                curr_is_float = true;
-                f_curr = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                curr_is_double = true;
+                f_curr = get<double>(arg_val->token.value);
             } else {
                 i_curr = get<int>(arg_val->token.value);
                 f_curr = i_curr;
             }
 
-            if (prev_is_float || curr_is_float) {
+            if (prev_is_double || curr_is_double) {
                 if (f_prev >= f_curr) return CreateNilNode(); 
             } else {
                 if (i_prev >= i_curr) return CreateNilNode();
             }
 
-            prev_is_float = curr_is_float;
+            prev_is_double = curr_is_double;
             f_prev = f_curr;
             i_prev = i_curr;
 
@@ -1102,7 +1080,7 @@ private:
     Node* EvalGreater(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
-            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Double)) {
                 throw EvalError(incorrect_arg_type, ">", check_curr->left);
             }
             check_curr = check_curr->right;
@@ -1110,19 +1088,19 @@ private:
 
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
-        bool prev_is_float = false;
-        float f_prev = 0.0f;
+        bool prev_is_double = false;
+        double f_prev = 0.0f;
         int i_prev = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, ">", arg_val);
             }
-            if (arg_val->token.type == Float) {
-                prev_is_float = true;
-                f_prev = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                prev_is_double = true;
+                f_prev = get<double>(arg_val->token.value);
             } else {
                 i_prev = get<int>(arg_val->token.value);
                 f_prev = i_prev;
@@ -1132,28 +1110,28 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, ">", arg_val);
             }
-            float f_curr = 0.0f;
+            double f_curr = 0.0f;
             int i_curr = 0;
-            bool curr_is_float = false;
+            bool curr_is_double = false;
 
-            if (arg_val->token.type == Float) {
-                curr_is_float = true;
-                f_curr = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                curr_is_double = true;
+                f_curr = get<double>(arg_val->token.value);
             } else {
                 i_curr = get<int>(arg_val->token.value);
                 f_curr = i_curr;
             }
 
-            if (prev_is_float || curr_is_float) {
+            if (prev_is_double || curr_is_double) {
                 if (f_prev <= f_curr) return CreateNilNode(); 
             } else {
                 if (i_prev <= i_curr) return CreateNilNode();
             }
 
-            prev_is_float = curr_is_float;
+            prev_is_double = curr_is_double;
             f_prev = f_curr;
             i_prev = i_curr;
 
@@ -1167,7 +1145,7 @@ private:
     Node* EvalGreaterEqual(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
-            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Double)) {
                 throw EvalError(incorrect_arg_type, ">=", check_curr->left);
             }
             check_curr = check_curr->right;
@@ -1175,19 +1153,19 @@ private:
 
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
-        bool prev_is_float = false;
-        float f_prev = 0.0f;
+        bool prev_is_double = false;
+        double f_prev = 0.0f;
         int i_prev = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, ">=", arg_val);
             }
-            if (arg_val->token.type == Float) {
-                prev_is_float = true;
-                f_prev = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                prev_is_double = true;
+                f_prev = get<double>(arg_val->token.value);
             } else {
                 i_prev = get<int>(arg_val->token.value);
                 f_prev = i_prev;
@@ -1197,28 +1175,28 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, ">=", arg_val);
             }
-            float f_curr = 0.0f;
+            double f_curr = 0.0f;
             int i_curr = 0;
-            bool curr_is_float = false;
+            bool curr_is_double = false;
 
-            if (arg_val->token.type == Float) {
-                curr_is_float = true;
-                f_curr = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                curr_is_double = true;
+                f_curr = get<double>(arg_val->token.value);
             } else {
                 i_curr = get<int>(arg_val->token.value);
                 f_curr = i_curr;
             }
 
-            if (prev_is_float || curr_is_float) {
+            if (prev_is_double || curr_is_double) {
                 if (f_prev < f_curr) return CreateNilNode(); 
             } else {
                 if (i_prev < i_curr) return CreateNilNode();
             }
 
-            prev_is_float = curr_is_float;
+            prev_is_double = curr_is_double;
             f_prev = f_curr;
             i_prev = i_curr;
 
@@ -1232,7 +1210,7 @@ private:
     Node* EvalLessEqual(Node* args) {
         Node* check_curr = args;
         while (check_curr != nullptr && check_curr->token.type != Nil) {
-            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Float)) {
+            if (check_curr->left == nullptr || (check_curr->left->token.type != Int && check_curr->left->token.type != Double)) {
                 throw EvalError(incorrect_arg_type, "<=", check_curr->left);
             }
             check_curr = check_curr->right;
@@ -1240,19 +1218,19 @@ private:
 
         if (args == nullptr || args->token.type == Nil) return CreateTrueNode();
 
-        bool prev_is_float = false;
-        float f_prev = 0.0f;
+        bool prev_is_double = false;
+        double f_prev = 0.0f;
         int i_prev = 0;
         Node* current = args;
         
         if (current != nullptr && current->token.type != Nil) { 
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "<=", arg_val);
             }
-            if (arg_val->token.type == Float) {
-                prev_is_float = true;
-                f_prev = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                prev_is_double = true;
+                f_prev = get<double>(arg_val->token.value);
             } else {
                 i_prev = get<int>(arg_val->token.value);
                 f_prev = i_prev;
@@ -1262,28 +1240,28 @@ private:
 
         while (current != nullptr && current->token.type != Nil) {
             Node* arg_val = current->left; 
-            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Float)) { 
+            if (arg_val == nullptr || (arg_val->token.type != Int && arg_val->token.type != Double)) { 
                 throw EvalError(incorrect_arg_type, "<=", arg_val);
             }
-            float f_curr = 0.0f;
+            double f_curr = 0.0f;
             int i_curr = 0;
-            bool curr_is_float = false;
+            bool curr_is_double = false;
 
-            if (arg_val->token.type == Float) {
-                curr_is_float = true;
-                f_curr = get<float>(arg_val->token.value);
+            if (arg_val->token.type == Double) {
+                curr_is_double = true;
+                f_curr = get<double>(arg_val->token.value);
             } else {
                 i_curr = get<int>(arg_val->token.value);
                 f_curr = i_curr;
             }
 
-            if (prev_is_float || curr_is_float) {
+            if (prev_is_double || curr_is_double) {
                 if (f_prev > f_curr) return CreateNilNode(); 
             } else {
                 if (i_prev > i_curr) return CreateNilNode();
             }
 
-            prev_is_float = curr_is_float;
+            prev_is_double = curr_is_double;
             f_prev = f_curr;
             i_prev = i_curr;
 
@@ -1317,7 +1295,7 @@ private:
         }
         
         Node* evaluated_car = Eval(args->left);
-        // 【修改】：如果參數算出來是 nullptr，代表它是一個 unbound_parameter
+        // 參數若無法求值，視為 unbound_parameter
         if (evaluated_car == nullptr) {
             throw EvalError(unbound_parameter, "", args->left);
         }
@@ -1396,7 +1374,7 @@ private:
         
         Node* target = args->left;
         
-        if (target != nullptr && target->is_atom && (target->token.type == Int || target->token.type == Float)) {
+        if (target != nullptr && target->is_atom && (target->token.type == Int || target->token.type == Double)) {
             return CreateTrueNode();
         }
         return CreateNilNode();
@@ -1410,7 +1388,7 @@ private:
         
         Node* target = args->left;
         
-        if (target != nullptr && target->is_atom && (target->token.type == Int || target->token.type == Float)) {
+        if (target != nullptr && target->is_atom && (target->token.type == Int || target->token.type == Double)) {
             return CreateTrueNode();
         }
         return CreateNilNode();
@@ -1493,7 +1471,7 @@ private:
             
             Token_Type t = first_arg->token.type;
             if (t == Int) return get<int>(first_arg->token.value) == get<int>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
-            if (t == Float) return get<float>(first_arg->token.value) == get<float>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
+            if (t == Double) return get<double>(first_arg->token.value) == get<double>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
             if (t == Symbol) return get<string>(first_arg->token.value) == get<string>(second_arg->token.value) ? CreateTrueNode() : CreateNilNode();
             if (t == String) return CreateNilNode();
             if (t == Nil || t == T) return CreateTrueNode();
@@ -1846,14 +1824,14 @@ private:
         if (len == 4) val_second = val_list->right->left;
 
         Node* evaluated_cond = Eval(cond_node);
-        // 【修改】：條件若無回傳值，拋出 unbound_condition
+        // 條件若無回傳值，拋出 unbound_condition
         if (evaluated_cond == nullptr) throw EvalError(unbound_condition, "", cond_node);
 
         if (evaluated_cond != nullptr && evaluated_cond->is_atom && evaluated_cond->token.type == Nil) {
             if (len == 4) {
                 return Eval(val_second);
             } else {
-                // 【修改】：沒有 else 分支時，優雅回傳 nullptr 讓外層決定
+                // 沒有 else 分支時回傳 nullptr，由外層處理
                 return nullptr;
             }
         }
@@ -1883,7 +1861,7 @@ private:
             Node* eval_cond = nullptr;
             if (!is_else) {
                 eval_cond = Eval(condition);
-                // 【修改】：條件若無回傳值，拋出 unbound_condition
+                // 條件若無回傳值，拋出 unbound_condition
                 if (eval_cond == nullptr) throw EvalError(unbound_condition, "", condition);
             }
 
@@ -2072,7 +2050,7 @@ private:
             // let 的 initializer 在當前環境算
             Node* init_val = Eval(expr_node);
             
-            // 【修改】：如果是 let 初始化時拿不到值，這裡才是真正的 no_return_value 源頭
+            // initializer 無回傳值時拋出 no_return_value
             if (init_val == nullptr) {
                 throw EvalError(no_return_value, "", expr_node);
             }
@@ -2185,17 +2163,17 @@ public:
             // 1. 先遞迴求出真正的操作符
             Node* evaluated_op = Eval(first_element);
             
-            // 【修改】：如果操作符本身算出來是 nullptr，代表它沒有回傳值
+            // 操作符本身無回傳值
             if (evaluated_op == nullptr) {
                 throw EvalError(no_return_value, "", first_element);
             }
             
-            // 提早檢查是否為有效函式... (後面邏輯保持不變)
+            // 檢查操作符是否為可套用函式
             if (!(evaluated_op->is_atom && (evaluated_op->token.type == Primitive || evaluated_op->token.type == Closure))) {
                 throw EvalError(apply_non_function, "", evaluated_op);
             }
             
-            // 提早檢查是否為有效函式，以及參數數量，讓這些錯誤先於參數評估 (unbound symbol) 被發現
+            // 先檢查函式與參數數量，再評估參數
             if (evaluated_op == nullptr || !(evaluated_op->is_atom && (evaluated_op->token.type == Primitive || evaluated_op->token.type == Closure))) {
                 throw EvalError(apply_non_function, "", evaluated_op);
             }
@@ -2246,7 +2224,7 @@ void PrintSExp(Node* node, int M) {
     if (node->is_atom) {
         Token t = node->token;
         if (t.type == Int) cout << get<int>(t.value) << "\n";
-        else if (t.type == Float) printf("%.3f\n", get<float>(t.value));
+        else if (t.type == Double) printf("%.3f\n", get<double>(t.value));
         else if (t.type == Nil) cout << "nil\n";
         else if (t.type == T) cout << "#t\n";
         else if (t.type == Primitive || t.type == Closure) cout << "#<procedure " << get<string>(t.value) << ">\n";
@@ -2374,7 +2352,7 @@ int main() {
                 evaluator.root = root;
                 Node* eval_result = evaluator.Eval(root);
 
-                // 【新增防護】：判斷 root 是否為本身就不回傳值的特殊操作
+                // 判斷 root 是否為本身就不回傳值的特殊操作
                 bool is_void_special_form = false;
                 if (root != nullptr && !root->is_atom) {
                     if (root->left && root->left->is_atom && root->left->token.type == Symbol) {
@@ -2385,7 +2363,7 @@ int main() {
                     }
                 }
 
-                // 【精準攔截】：如果整個語句執行完回傳 nullptr，且不是 define 等合法無回傳值的操作，才拋出錯誤
+                // 如果整個語句執行完回傳 nullptr，且不是 define 等合法無回傳值的操作，才拋出錯誤
                 if (eval_result == nullptr && !is_void_special_form) {
                     throw EvalError(no_return_value, "", root);
                 }
