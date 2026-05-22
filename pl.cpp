@@ -131,6 +131,8 @@ struct ParseError : public exception {
     ParseError(ParserError_Type t, int l, int c, string s) : type(t), line(l), col(c), token_str(s){}
 };
 
+void ParseErrorHandler(ParseError& e);
+
 // Eval 專用的 Exception
 struct EvalError : public exception {
     EvalError_Type type; // 評估錯誤的種類
@@ -143,6 +145,8 @@ struct EvalError : public exception {
 
     EvalError(EvalError_Type t, string m, Node* n) : type(t), msg(m), err_node(n) {}
 };
+
+void EvalErrorHandler(EvalError& e);
 
 // 刪除整個樹
 void FreeTree(Node* node) {
@@ -530,7 +534,8 @@ public:
 class Evaluator {
 private:
     Environment* curr_env;
-    string special_forms [10];
+    string special_forms [14];
+    Parser* parser = nullptr;
     
     // 檢查是否為特殊形式或內建函式，若是則丟出對應的 EvalError (用於 define 的變數名稱檢查)
     void CheckSpecialPrim(Node* node, Node* exp, EvalError_Type error_type) {
@@ -2091,9 +2096,155 @@ private:
         return result;
     }
 
+    // --- Project 4 ---
+
+    // 處理 (read)：從標準輸入讀入一行 Scheme 程式碼，解析成 AST 後回傳
+    Node* HandleRead(Node* exp) {
+        if (ListLength(exp) != 1) {
+            throw EvalError(incorrect_num_of_args, "read");
+            return nullptr;
+        }
+
+        if (!parser) {
+            throw EvalError(no_return_value, "read");
+        }
+
+        try {
+            Node* n = parser->ReadSExp();
+            return n;
+        } catch (ParseError& e) {
+            // 讓解析錯誤按目前專案的處理流程輸出，再讓呼叫端處理為 nil
+            ParseErrorHandler(e);
+            // 丟掉當前行的剩餘內容，避免 Scanner 狀態卡住
+            parser->DiscardLine();
+            return nullptr;
+        }
+    }
+
+    // 處理 (set! var val)：更新已定義變數的值，若變數未定義則在全域環境定義
+    Node* HandleSet(Node* exp) {
+        if (ListLength(exp) != 3) {
+            throw EvalError(incorrect_num_of_args, "set!");
+            return nullptr;
+        }
+
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(incorrect_arg_type, "set!", args);
+            return nullptr;
+        }
+
+        Node* var_node = args->left;
+        if (var_node == nullptr || !var_node->is_atom || var_node->token.type != Symbol) {
+            throw EvalError(incorrect_arg_type, "set!", var_node);
+            return nullptr;
+        }
+
+        //CheckSpecialPrim(var_node, exp, "set!");
+
+        string var_name = get<string>(var_node->token.value);
+        Node* val_node = args->right->left;
+
+        Node* evaluated_val = Eval(val_node);
+        
+        // 檢查要設定的值是否有回傳值
+        if (evaluated_val == nullptr) {
+            throw EvalError(no_return_value, "", val_node);
+        }
+
+        Environment* env_with_var = curr_env;
+        while (env_with_var != nullptr && env_with_var->LookupVar(var_name) == nullptr) {
+            env_with_var = env_with_var->parent;
+        }
+        
+        if (env_with_var == nullptr) {
+            // OurScheme 規格：若變數未綁定，則將其定義在最外層的全域環境 (Global Environment)
+            Environment* global_env = curr_env;
+            while (global_env != nullptr && global_env->parent != nullptr) {
+                global_env = global_env->parent;
+            }
+            if (global_env != nullptr) {
+                global_env->Define(var_name, evaluated_val);
+            }
+        } else {
+            Node* old_val = env_with_var->LookupVar(var_name);
+            // 如果新值與舊值相同，直接返回（避免不必要的樹修改）
+            if (old_val == evaluated_val) {
+                return nullptr;
+            }
+            // 否則，更新現有變數的值
+            env_with_var->Define(var_name, evaluated_val);
+        }
+
+        // 注意：這裡不需要 cout << var_name << " set\n"; 且 set! 為 void 操作
+        return nullptr;
+    }
+
+    // 處理 (eval exp)：先求值 exp 得到一個新的 AST，然後對這個 AST 再次求值並回傳結果
+    Node* HandleEval(Node* exp) {
+        if (ListLength(exp) != 2) {
+            throw EvalError(incorrect_num_of_args, "eval");
+            return nullptr;
+        }
+
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(incorrect_arg_type, "eval", args);
+            return nullptr;
+        }
+
+        Node* expr_node = args->left;
+
+        Node* evaluated_expr = Eval(expr_node);
+        
+        // 檢查要 eval 的值是否有回傳值
+        if (evaluated_expr == nullptr) {
+            throw EvalError(no_return_value, "", expr_node);
+        }
+
+        return Eval(evaluated_expr);
+    }
+
+    // 處理 (display-string exp)：求值 exp 後將結果以字串形式輸出到標準輸出
+    Node* HandleDisplayString(Node* exp) {
+        if (ListLength(exp) != 2) {
+            throw EvalError(incorrect_num_of_args, "display-string");
+            return nullptr;
+        }
+
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(incorrect_arg_type, "display-string", args);
+            return nullptr;
+        }
+
+        Node* str_node = args->left;
+        Node* evaluated_str = Eval(str_node);
+        
+        // 檢查要顯示的值是否有回傳值
+        if (evaluated_str == nullptr) {
+            throw EvalError(no_return_value, "", str_node);
+        }
+
+        if (evaluated_str->is_atom && evaluated_str->token.type == String) {
+            string str_val = get<string>(evaluated_str->token.value);
+            // 去掉字串前後的引號再輸出
+            if (str_val.length() >= 2 && str_val.front() == '"' && str_val.back() == '"') {
+                cout << str_val.substr(1, str_val.length() - 2) << endl;
+            } else {
+                cout << str_val << endl; // 如果不符合字串格式，直接輸出原始值
+            }
+        } else {
+            throw EvalError(incorrect_arg_type, "display-string", evaluated_str);
+        }
+        return nullptr; // display-string 為 void 操作
+    }
+
 public:
     Node* root = nullptr;         
     Node* define_node = nullptr;
+    // 注入 Parser 以便 (read) 可重用同一個 Scanner/Parser 狀態
+    void SetParser(Parser* p) { parser = p; }
 
     // 建構子：初始化全域環境與 Special Form 名稱
     Evaluator() {
@@ -2108,6 +2259,10 @@ public:
         special_forms[7] = "or";
         special_forms[8] = "lambda";
         special_forms[9] = "let";
+        special_forms[10] = "read";
+        special_forms[11] = "set!";
+        special_forms[12] = "eval";
+        special_forms[13] = "display-string";
         
         for (string p : prims) {
             curr_env->Define(p, CreatePrimitiveNode(p));
@@ -2157,6 +2312,10 @@ public:
                 if (op == "exit") return HandleExit(node);
                 if (op == "lambda") return HandleLambda(node);
                 if (op == "let") return HandleLet(node);
+                if (op == "read") return HandleRead(node);
+                if (op == "set!") return HandleSet(node);
+                if (op == "eval") return HandleEval(node);
+                if (op == "display-string") return HandleDisplayString(node);
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
@@ -2333,6 +2492,7 @@ int main() {
     getline(cin, whatever);
     Parser parser;
     Evaluator evaluator;
+    evaluator.SetParser(&parser);
     cout << "Welcome to OurScheme!\n";
     while (true) {
         cout << "\n> ";
