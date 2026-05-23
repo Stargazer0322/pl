@@ -534,7 +534,7 @@ public:
 class Evaluator {
 private:
     Environment* curr_env;
-    string special_forms [14];
+    string special_forms [17];
     Parser* parser = nullptr;
     
     // 檢查是否為特殊形式或內建函式，若是則丟出對應的 EvalError (用於 define 的變數名稱檢查)
@@ -1734,7 +1734,7 @@ private:
 
     // 處理 (define var val)：將變數綁定存入環境中
     Node* HandleDefine(Node* exp) {
-        if (exp != root) {
+        if (exp != root && exp != curr_root) {
             throw EvalError(level_of_define);
             return nullptr;
         }
@@ -2201,7 +2201,7 @@ private:
         if (evaluated_expr == nullptr) {
             throw EvalError(no_return_value, "", expr_node);
         }
-
+        curr_root = evaluated_expr;
         return Eval(evaluated_expr);
     }
 
@@ -2230,7 +2230,7 @@ private:
             string str_val = get<string>(evaluated_str->token.value);
             // 去掉字串前後的引號再輸出
             if (str_val.length() >= 2 && str_val.front() == '"' && str_val.back() == '"') {
-                cout << str_val.substr(1, str_val.length() - 2) << endl;
+                cout << str_val.substr(1, str_val.length() - 2);
             } else {
                 cout << str_val << endl; // 如果不符合字串格式，直接輸出原始值
             }
@@ -2240,7 +2240,78 @@ private:
         return nullptr; // display-string 為 void 操作
     }
 
+    // 處理 (newline)：在標準輸出印出換行符號
+    Node* HandleNewline() {
+        cout << endl;
+        return nullptr;
+    }
+
+    // 處理 (symbol->string exp)：將一個符號轉換為字串
+    Node* HandleSymboltoString(Node* exp) {
+        if (ListLength(exp) != 2) {
+            throw EvalError(incorrect_num_of_args, "symbol->string");
+            return nullptr;
+        }
+
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(incorrect_arg_type, "symbol->string", args);
+            return nullptr;
+        }
+
+        Node* sym_node = args->left;
+        Node* evaluated_sym = Eval(sym_node);
+        
+        // 檢查要轉換的值是否有回傳值
+        if (evaluated_sym == nullptr) {
+            throw EvalError(no_return_value, "", sym_node);
+            return nullptr;
+        }
+
+        if (evaluated_sym->is_atom && evaluated_sym->token.type == Symbol) {
+            string sym_val = get<string>(evaluated_sym->token.value);
+            string str_val = "\"" + sym_val + "\"";
+            return CreateStringNode(str_val);
+        } else {
+            throw EvalError(incorrect_arg_type, "symbol->string", evaluated_sym);
+            return nullptr;
+        }
+    }
+
+    // 處理 (number->string exp)：將一個數字轉換為字串
+    Node* HandleNumbertoString(Node* exp) {
+        if (ListLength(exp) != 2) {
+            throw EvalError(incorrect_num_of_args, "number->string");
+            return nullptr;
+        }
+
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(incorrect_arg_type, "number->string", args);
+            return nullptr;
+        }
+
+        Node* num_node = args->left;
+        Node* evaluated_num = Eval(num_node);
+        
+        // 檢查要轉換的值是否有回傳值
+        if (evaluated_num == nullptr) {
+            throw EvalError(no_return_value, "", num_node);
+            return nullptr;
+        }
+
+        if (evaluated_num->is_atom && (evaluated_num->token.type == Int || evaluated_num->token.type == Double)) {
+            string num_val = to_string(get<double>(evaluated_num->token.value));
+            string str_val = "\"" + num_val + "\"";
+            return CreateStringNode(str_val);
+        } else {
+            throw EvalError(incorrect_arg_type, "number->string", evaluated_num);
+            return nullptr;
+        }
+    }
+
 public:
+    Node* curr_root = nullptr; // 用於追蹤當前求值的根節點(eval暫用)
     Node* root = nullptr;         
     Node* define_node = nullptr;
     // 注入 Parser 以便 (read) 可重用同一個 Scanner/Parser 狀態
@@ -2263,6 +2334,9 @@ public:
         special_forms[11] = "set!";
         special_forms[12] = "eval";
         special_forms[13] = "display-string";
+        special_forms[14] = "newline";
+        special_forms[15] = "symbol->string";
+        special_forms[16] = "number->string";
         
         for (string p : prims) {
             curr_env->Define(p, CreatePrimitiveNode(p));
@@ -2316,6 +2390,9 @@ public:
                 if (op == "set!") return HandleSet(node);
                 if (op == "eval") return HandleEval(node);
                 if (op == "display-string") return HandleDisplayString(node);
+                if (op == "newline") return HandleNewline();
+                if (op == "symbol->string") return HandleSymboltoString(node);
+                if (op == "number->string") return HandleNumbertoString(node);
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
