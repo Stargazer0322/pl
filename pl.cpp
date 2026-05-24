@@ -192,6 +192,85 @@ Node* CloneTree(Node* node) {
     return new Node(CloneTree(node->left), CloneTree(node->right));
 }
 
+// 印出空白的輔助函式
+void PrintSpace(int num) {
+    for (int i = 0; i < num; i++) cout << ' ';
+}
+
+// Pretty Print 列印 S-exp
+void PrintSExp(Node* node, int M) {
+    if (node == nullptr) return;
+
+    if (node->is_atom) {
+        Token t = node->token;
+        if (t.type == Int) cout << get<int>(t.value) << "\n";
+        else if (t.type == Double) printf("%.3f\n", get<double>(t.value));
+        else if (t.type == Nil) cout << "nil\n";
+        else if (t.type == T) cout << "#t\n";
+        else if (t.type == Primitive || t.type == Closure) cout << "#<procedure " << get<string>(t.value) << ">\n";
+        else cout << get<string>(t.value) << "\n"; // Symbol 或 String
+    } else {
+        // 這是一個 Pair (括號結構)
+        cout << "( ";
+        PrintSExp(node->left, M + 2);
+
+        Node* curr = node->right;
+        while (curr != nullptr && !curr->is_atom) {
+            PrintSpace(M + 2);
+            PrintSExp(curr->left, M + 2);
+            curr = curr->right;
+        }
+
+        if (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
+            // 如果右結尾不是 nil，表示有 Dotted pair
+            PrintSpace(M + 2);
+            cout << ".\n";
+            PrintSpace(M + 2);
+            PrintSExp(curr, M + 2);
+        }
+
+        PrintSpace(M);
+        cout << ")\n";
+    }
+}
+
+// 列印 S-exp 的輔助函式，與 PrintSExp 類似但不包含最後的換行符 (用於 write 指令)
+void PrintSExpWrite(Node* node, int M) {
+    if (node == nullptr) return;
+
+    if (node->is_atom) {
+        Token t = node->token;
+        if (t.type == Int) cout << get<int>(t.value) << "\n";
+        else if (t.type == Double) printf("%.3f\n", get<double>(t.value));
+        else if (t.type == Nil) cout << "nil\n";
+        else if (t.type == T) cout << "#t\n";
+        else if (t.type == Primitive || t.type == Closure) cout << "#<procedure " << get<string>(t.value) << ">\n";
+        else cout << get<string>(t.value) << "\n"; // Symbol 或 String
+    } else {
+        // 這是一個 Pair (括號結構)
+        cout << "( ";
+        PrintSExpWrite(node->left, M + 2);
+
+        Node* curr = node->right;
+        while (curr != nullptr && !curr->is_atom) {
+            PrintSpace(M + 2);
+            PrintSExpWrite(curr->left, M + 2);
+            curr = curr->right;
+        }
+
+        if (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
+            // 如果右結尾不是 nil，表示有 Dotted pair
+            PrintSpace(M + 2);
+            cout << ".\n";
+            PrintSpace(M + 2);
+            PrintSExpWrite(curr, M + 2);
+        }
+
+        PrintSpace(M);
+        cout << ")";
+        if (M != 0) cout << "\n"; // 最外層結束後換行
+    }
+}
 
 // Environment 類別：用於儲存變數與其對應的值，並支援巢狀作用域 (parent)
 class Environment {
@@ -534,7 +613,7 @@ public:
 class Evaluator {
 private:
     Environment* curr_env;
-    string special_forms [17];
+    string special_forms [18];
     Parser* parser = nullptr;
     
     // 檢查是否為特殊形式或內建函式，若是則丟出對應的 EvalError (用於 define 的變數名稱檢查)
@@ -1790,8 +1869,8 @@ private:
             evaluated_val = CreateClosureNode(var_node->right, val_list, var_name);
         }
 
-        if (curr_env->LookupVar(var_name) != nullptr) {
-            Node* old_val = curr_env->LookupVar(var_name);
+        if (curr_env->vars.count(var_name) > 0) {
+            Node* old_val = curr_env->vars[var_name];
             bool found = false;
             for (auto& x: curr_env->vars) {
                 if (x.first != var_name && x.second == old_val) {
@@ -2140,25 +2219,22 @@ private:
             return nullptr;
         }
 
-        //CheckSpecialPrim(var_node, exp, "set!");
-
         string var_name = get<string>(var_node->token.value);
         Node* val_node = args->right->left;
 
         Node* evaluated_val = Eval(val_node);
         
-        // 檢查要設定的值是否有回傳值
         if (evaluated_val == nullptr) {
             throw EvalError(no_return_value, "", val_node);
         }
 
         Environment* env_with_var = curr_env;
-        while (env_with_var != nullptr && env_with_var->LookupVar(var_name) == nullptr) {
-            env_with_var = env_with_var->parent;
+        while (env_with_var != nullptr && env_with_var->vars.count(var_name) == 0) {
+            env_with_var = env_with_var->parent; // 若當前層沒有，才往上一層找
         }
         
         if (env_with_var == nullptr) {
-            // OurScheme 規格：若變數未綁定，則將其定義在最外層的全域環境 (Global Environment)
+            // OurScheme 規格：若變數未綁定，則將其定義在最外層的全域環境
             Environment* global_env = curr_env;
             while (global_env != nullptr && global_env->parent != nullptr) {
                 global_env = global_env->parent;
@@ -2167,7 +2243,8 @@ private:
                 global_env->Define(var_name, evaluated_val);
             }
         } else {
-            Node* old_val = env_with_var->LookupVar(var_name);
+            // 直接從該層的 map 中取得舊值
+            Node* old_val = env_with_var->vars[var_name];
             // 如果新值與舊值相同，直接返回（避免不必要的樹修改）
             if (old_val == evaluated_val) {
                 return nullptr;
@@ -2176,7 +2253,6 @@ private:
             env_with_var->Define(var_name, evaluated_val);
         }
 
-        // 注意：這裡不需要 cout << var_name << " set\n"; 且 set! 為 void 操作
         return nullptr;
     }
 
@@ -2194,15 +2270,26 @@ private:
         }
 
         Node* expr_node = args->left;
-
         Node* evaluated_expr = Eval(expr_node);
         
         // 檢查要 eval 的值是否有回傳值
         if (evaluated_expr == nullptr) {
             throw EvalError(no_return_value, "", expr_node);
         }
+        
+        // 切換到全域環境求值，確保 eval 的求值不受當前局部環境影響
+        Environment* saved_env = curr_env;
+        Environment* global_env = curr_env;
+        while (global_env != nullptr && global_env->parent != nullptr) {
+            global_env = global_env->parent;
+        }
+        curr_env = global_env; // 切換至全域環境
+
         curr_root = evaluated_expr;
-        return Eval(evaluated_expr);
+        Node* res = Eval(evaluated_expr);
+
+        curr_env = saved_env; // 執行完畢後恢復原來的環境
+        return res;
     }
 
     // 處理 (display-string exp)：求值 exp 後將結果以字串形式輸出到標準輸出
@@ -2301,11 +2388,75 @@ private:
         }
 
         if (evaluated_num->is_atom && (evaluated_num->token.type == Int || evaluated_num->token.type == Double)) {
-            string num_val = to_string(get<double>(evaluated_num->token.value));
+            
+            string num_val;
+            if (evaluated_num->token.type == Int) {
+                // 如果是整數，使用 get<int> 提取
+                num_val = to_string(get<int>(evaluated_num->token.value));
+            } else {
+                // 如果是浮點數，使用 get<double> 提取，並維持輸出 3 位小數 (與 PrintSExp 一致)
+                char buf[64];
+                snprintf(buf, sizeof(buf), "%.3f", get<double>(evaluated_num->token.value));
+                num_val = buf;
+            }
             string str_val = "\"" + num_val + "\"";
             return CreateStringNode(str_val);
+            
         } else {
             throw EvalError(incorrect_arg_type, "number->string", evaluated_num);
+            return nullptr;
+        }
+    }
+
+    // 處理 (write exp)：將 exp 的求值結果以 S-expression 格式輸出到標準輸出
+    Node* HandleWrite (Node* exp) {
+        if (ListLength(exp) != 2) {
+            throw EvalError(incorrect_num_of_args, "write");
+            return nullptr;
+        }
+
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(incorrect_arg_type, "write", args);
+            return nullptr;
+        }
+        
+        Node* expr_node = args->left;
+        Node* arg_val = Eval(expr_node); // 將原始語法樹進行求值
+        
+        if (arg_val == nullptr) {
+            throw EvalError(no_return_value, "", expr_node);
+        }
+        PrintSExpWrite(arg_val, 0); // 印出求值後的結果
+        return nullptr;        // write 沒有實質的回傳值 (void)
+    }
+
+    Node* HandleErrorObject(Node* exp) {
+        if (ListLength(exp) != 2) {
+            throw EvalError(incorrect_num_of_args, "error-object");
+            return nullptr;
+        }
+
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(incorrect_arg_type, "error-object", args);
+            return nullptr;
+        }
+
+        Node* err_node = args->left;
+        Node* evaluated_err = Eval(err_node);
+        
+        // 檢查要轉換的值是否有回傳值
+        if (evaluated_err == nullptr) {
+            throw EvalError(no_return_value, "", err_node);
+            return nullptr;
+        }
+
+        if (evaluated_err->is_atom && evaluated_err->token.type == String) {
+            string err_val = get<string>(evaluated_err->token.value);
+            return CreateErrorNode(err_val);
+        } else {
+            throw EvalError(incorrect_arg_type, "error-object", evaluated_err);
             return nullptr;
         }
     }
@@ -2337,6 +2488,7 @@ public:
         special_forms[14] = "newline";
         special_forms[15] = "symbol->string";
         special_forms[16] = "number->string";
+        special_forms[17] = "write";
         
         for (string p : prims) {
             curr_env->Define(p, CreatePrimitiveNode(p));
@@ -2393,6 +2545,7 @@ public:
                 if (op == "newline") return HandleNewline();
                 if (op == "symbol->string") return HandleSymboltoString(node);
                 if (op == "number->string") return HandleNumbertoString(node);
+                if (op == "write") return HandleWrite(node);
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
@@ -2448,47 +2601,7 @@ public:
     }
 };
 
-// 印出空白的輔助函式
-void PrintSpace(int num) {
-    for (int i = 0; i < num; i++) cout << ' ';
-}
 
-// Pretty Print 列印 S-exp
-void PrintSExp(Node* node, int M) {
-    if (node == nullptr) return;
-
-    if (node->is_atom) {
-        Token t = node->token;
-        if (t.type == Int) cout << get<int>(t.value) << "\n";
-        else if (t.type == Double) printf("%.3f\n", get<double>(t.value));
-        else if (t.type == Nil) cout << "nil\n";
-        else if (t.type == T) cout << "#t\n";
-        else if (t.type == Primitive || t.type == Closure) cout << "#<procedure " << get<string>(t.value) << ">\n";
-        else cout << get<string>(t.value) << "\n"; // Symbol 或 String
-    } else {
-        // 這是一個 Pair (括號結構)
-        cout << "( ";
-        PrintSExp(node->left, M + 2);
-
-        Node* curr = node->right;
-        while (curr != nullptr && !curr->is_atom) {
-            PrintSpace(M + 2);
-            PrintSExp(curr->left, M + 2);
-            curr = curr->right;
-        }
-
-        if (curr != nullptr && !(curr->is_atom && curr->token.type == Nil)) {
-            // 如果右結尾不是 nil，表示有 Dotted pair
-            PrintSpace(M + 2);
-            cout << ".\n";
-            PrintSpace(M + 2);
-            PrintSExp(curr, M + 2);
-        }
-
-        PrintSpace(M);
-        cout << ")\n";
-    }
-}
 
 // 檢查是否為 (exit) 指令
 bool IsExit(Node* root) {
