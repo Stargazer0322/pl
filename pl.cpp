@@ -613,7 +613,7 @@ public:
 class Evaluator {
 private:
     Environment* curr_env;
-    string special_forms [18];
+    string special_forms [20];
     Parser* parser = nullptr;
     
     // 檢查是否為特殊形式或內建函式，若是則丟出對應的 EvalError (用於 define 的變數名稱檢查)
@@ -778,6 +778,13 @@ private:
         Node* n = new Node(closure);
         n->is_closure = true;
         n->token = Token(Closure, name);
+        return n;
+    }
+
+    Node* CreateErrorNode(string msg) {
+        Node* n = new Node();
+        n->is_atom = true;
+        n->token = Token(ErrorToken, msg);
         return n;
     }
 
@@ -2192,11 +2199,24 @@ private:
             Node* n = parser->ReadSExp();
             return n;
         } catch (ParseError& e) {
-            // 讓解析錯誤按目前專案的處理流程輸出，再讓呼叫端處理為 nil
-            ParseErrorHandler(e);
+            // 生成錯誤訊息並回傳 error object
+            string error_msg = "";
+            if (e.type == no_more_input) {
+                error_msg = "\"END-OF-FILE encountered\"";
+            } else if (e.type == no_closing_quote) {
+                error_msg = "\"no closing quote at line " + to_string(e.line) + " column " + to_string(e.col) + "\"";
+            } else if (e.type == unexpected_token_atom) {
+                error_msg = "\"atom or '(' expected, got >>" + e.token_str + "<<\"";
+            } else if (e.type == unexpected_token_paren) {
+                error_msg = "\"')' expected, got >>" + e.token_str + "<<\"";
+            } else {
+                error_msg = "\"parse error\"";
+            }
+            
             // 丟掉當前行的剩餘內容，避免 Scanner 狀態卡住
             parser->DiscardLine();
-            return nullptr;
+            // 回傳 error object 而不是 nullptr
+            return CreateErrorNode(error_msg);
         }
     }
 
@@ -2431,6 +2451,7 @@ private:
         return nullptr;        // write 沒有實質的回傳值 (void)
     }
 
+    // 處理 (error-object exp)：將 exp 的求值結果轉換為錯誤物件
     Node* HandleErrorObject(Node* exp) {
         if (ListLength(exp) != 2) {
             throw EvalError(incorrect_num_of_args, "error-object");
@@ -2457,6 +2478,37 @@ private:
             return CreateErrorNode(err_val);
         } else {
             throw EvalError(incorrect_arg_type, "error-object", evaluated_err);
+            return nullptr;
+        }
+    }
+
+    // 處理 (create-error-object exp)：將 exp 的求值結果轉換為錯誤物件
+    Node* HandleCreateErrorObject(Node* exp) {
+        if (ListLength(exp) != 2) {
+            throw EvalError(incorrect_num_of_args, "create-error-object");
+            return nullptr;
+        }
+
+        Node* args = exp->right;
+        if (args == nullptr || args->is_atom) {
+            throw EvalError(incorrect_arg_type, "create-error-object", args);
+            return nullptr;
+        }
+
+        Node* err_node = args->left;
+        Node* evaluated_err = Eval(err_node);
+        
+        // 檢查要轉換的值是否有回傳值
+        if (evaluated_err == nullptr) {
+            throw EvalError(no_return_value, "", err_node);
+            return nullptr;
+        }
+
+        if (evaluated_err->is_atom && evaluated_err->token.type == String) {
+            string err_val = get<string>(evaluated_err->token.value);
+            return CreateErrorNode(err_val);
+        } else {
+            throw EvalError(incorrect_arg_type, "create-error-object", evaluated_err);
             return nullptr;
         }
     }
@@ -2489,6 +2541,8 @@ public:
         special_forms[15] = "symbol->string";
         special_forms[16] = "number->string";
         special_forms[17] = "write";
+        special_forms[18] = "error-object";
+        special_forms[19] = "create-error-object";
         
         for (string p : prims) {
             curr_env->Define(p, CreatePrimitiveNode(p));
@@ -2546,6 +2600,8 @@ public:
                 if (op == "symbol->string") return HandleSymboltoString(node);
                 if (op == "number->string") return HandleNumbertoString(node);
                 if (op == "write") return HandleWrite(node);
+                if (op == "error-object?") return HandleErrorObject(node);
+                if (op == "create-error-object") return HandleCreateErrorObject(node);
             }
 
             // 情況 B：這是一般函式呼叫 (例如 +, -, *, car, cons)
