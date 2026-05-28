@@ -91,7 +91,7 @@ static const string prims[] = {
     "cons", "car", "cdr", "list", "list?", "pair?", "null?", 
     "integer?", "real?", "number?", "symbol?", "string?", 
     "boolean?", "atom?", "eqv?", "equal?", "not", "string-append", 
-    "string>?", "string<?", "string=?", "exit"
+    "string>?", "string<?", "string=?", "exit", "error-object?", "verbose?", "verbose"
 };
 
 // 定義 Parser 錯誤的種類
@@ -240,12 +240,15 @@ void PrintSExpWrite(Node* node, int M) {
 
     if (node->is_atom) {
         Token t = node->token;
-        if (t.type == Int) cout << get<int>(t.value) << "\n";
-        else if (t.type == Double) printf("%.3f\n", get<double>(t.value));
-        else if (t.type == Nil) cout << "nil\n";
-        else if (t.type == T) cout << "#t\n";
-        else if (t.type == Primitive || t.type == Closure) cout << "#<procedure " << get<string>(t.value) << ">\n";
-        else cout << get<string>(t.value) << "\n"; // Symbol 或 String
+        if (t.type == Int) cout << get<int>(t.value);
+        else if (t.type == Double) printf("%.3f", get<double>(t.value));
+        else if (t.type == Nil) cout << "nil";
+        else if (t.type == T) cout << "#t";
+        else if (t.type == Primitive || t.type == Closure) cout << "#<procedure " << get<string>(t.value) << ">";
+        else cout << get<string>(t.value); // Symbol 或 String
+        
+        // 只有在內部結構 (M != 0) 時才換行，最外層不自動換行
+        if (M != 0) cout << "\n"; 
     } else {
         // 這是一個 Pair (括號結構)
         cout << "( ";
@@ -268,7 +271,7 @@ void PrintSExpWrite(Node* node, int M) {
 
         PrintSpace(M);
         cout << ")";
-        if (M != 0) cout << "\n"; // 最外層結束後換行
+        if (M != 0) cout << "\n"; // 最外層結束後不換行
     }
 }
 
@@ -613,8 +616,9 @@ public:
 class Evaluator {
 private:
     Environment* curr_env;
-    string special_forms [20];
+    string special_forms [19];
     Parser* parser = nullptr;
+    bool is_verbose = true; // 是否在評估過程中印出每一步的 AST 結構 (用於除錯)
     
     // 檢查是否為特殊形式或內建函式，若是則丟出對應的 EvalError (用於 define 的變數名稱檢查)
     void CheckSpecialPrim(Node* node, Node* exp, EvalError_Type error_type) {
@@ -774,13 +778,14 @@ private:
         if (curr_env != nullptr && curr_env->parent != nullptr) {
             capture_env = curr_env->parent;
         }
-        ClosureNode* closure = new ClosureNode(CloneTree(params), CloneTree(body), capture_env);
+        ClosureNode* closure = new ClosureNode(params, body, capture_env);
         Node* n = new Node(closure);
         n->is_closure = true;
         n->token = Token(Closure, name);
         return n;
     }
 
+    // 建立錯誤節點 (用於 EvalError 中攜帶需要被 PrintSExp 列印的節點)
     Node* CreateErrorNode(string msg) {
         Node* n = new Node();
         n->is_atom = true;
@@ -804,7 +809,7 @@ private:
         Node* arg_cursor = args;
         while (param_cursor != nullptr && param_cursor->token.type != Nil) {
             string param_name = get<string>(param_cursor->left->token.value);
-            call_env->Define(param_name, CloneTree(arg_cursor->left));
+            call_env->Define(param_name, arg_cursor->left);
             param_cursor = param_cursor->right;
             arg_cursor = arg_cursor->right;
         }
@@ -1760,6 +1765,33 @@ private:
         return CreateTrueNode();
     }
 
+    // 處理 (error-object? exp)：檢查 exp 的求值結果是否為錯誤物件
+    Node* EvalErrorObject(Node* args) {
+        Node* target = args->left;
+        if (target != nullptr && target->is_atom && target->token.type == ErrorToken) {
+            return CreateTrueNode();
+        }
+        return CreateNilNode();
+    }
+
+    // 處理 (verbose [flag])：設定 verbose 模式，若 flag 為 nil 則關閉 verbose 模式，否則開啟
+    Node* EvalVerbose(Node* args) {
+        if (ListLength(args) != 1) throw EvalError(incorrect_num_of_args, "verbose");
+        Node* target = args->left;
+        if (target != nullptr && target->is_atom && target->token.type == Nil) {
+            is_verbose = false;
+        } else {
+            is_verbose = true;
+        }
+        return CreateTrueNode(); 
+    }
+
+    // 處理 (verbose?)：回傳目前 verbose 模式的狀態
+    Node* EvalVerboseQ(Node* args) {
+        if (ListLength(args) != 0) throw EvalError(incorrect_num_of_args, "verbose?");
+        return is_verbose ? CreateTrueNode() : CreateNilNode();
+    }
+    
     // --- Evaluator 核心邏輯：Apply 與 Special Forms 處理 ---
 
     // Apply：將算好的參數套用到指定的內建函式 (Primitive) 上
@@ -1796,6 +1828,9 @@ private:
             else if (op_name == "string>?") return EvalStringGreater(args);
             else if (op_name == "string<?") return EvalStringLess(args);
             else if (op_name == "string=?") return EvalStringEqual(args);
+            else if (op_name == "error-object?") return EvalErrorObject(args);
+            else if (op_name == "verbose") return EvalVerbose(args);
+            else if (op_name == "verbose?") return EvalVerboseQ(args);
         } else {
             throw EvalError(apply_non_function, "", args);
         }
@@ -1861,9 +1896,6 @@ private:
                 throw EvalError(no_return_value, "", val_node);
             }
             
-            if (!curr_env->LookupNode(evaluated_val)) {
-                evaluated_val = CloneTree(evaluated_val);
-            }
         } else {
             if (ListLength(exp) < 3) {
                 throw EvalError(define_format, "", exp);
@@ -1875,22 +1907,13 @@ private:
             var_name = get<string>(function_name->token.value);
             evaluated_val = CreateClosureNode(var_node->right, val_list, var_name);
         }
-
-        if (curr_env->vars.count(var_name) > 0) {
-            Node* old_val = curr_env->vars[var_name];
-            bool found = false;
-            for (auto& x: curr_env->vars) {
-                if (x.first != var_name && x.second == old_val) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) FreeTree(old_val); // 只在沒有其他人指向時才釋放
-        }
+        
         curr_env->Define(var_name, evaluated_val);
         define_node = evaluated_val;
         
-        cout << var_name << " defined\n";
+        if (is_verbose) { // 開啟時才印出定義訊息
+            cout << var_name << " defined\n";
+        }
         return nullptr;
     }
 
@@ -2159,7 +2182,7 @@ private:
         Environment* let_env = new Environment(saved_env, curr_env->curr_root);
 
         for (int i = 0; i < (int)names.size(); i++) {
-            let_env->Define(names[i], CloneTree(values[i]));
+            let_env->Define(names[i], values[i]);
         }
 
         // 在新作用域跑 body，回傳最後一個值
@@ -2250,11 +2273,10 @@ private:
 
         Environment* env_with_var = curr_env;
         while (env_with_var != nullptr && env_with_var->vars.count(var_name) == 0) {
-            env_with_var = env_with_var->parent; // 若當前層沒有，才往上一層找
+            env_with_var = env_with_var->parent; 
         }
         
         if (env_with_var == nullptr) {
-            // OurScheme 規格：若變數未綁定，則將其定義在最外層的全域環境
             Environment* global_env = curr_env;
             while (global_env != nullptr && global_env->parent != nullptr) {
                 global_env = global_env->parent;
@@ -2263,17 +2285,14 @@ private:
                 global_env->Define(var_name, evaluated_val);
             }
         } else {
-            // 直接從該層的 map 中取得舊值
             Node* old_val = env_with_var->vars[var_name];
-            // 如果新值與舊值相同，直接返回（避免不必要的樹修改）
             if (old_val == evaluated_val) {
-                return nullptr;
+                return evaluated_val;
             }
-            // 否則，更新現有變數的值
             env_with_var->Define(var_name, evaluated_val);
         }
 
-        return nullptr;
+        return evaluated_val;
     }
 
     // 處理 (eval exp)：先求值 exp 得到一個新的 AST，然後對這個 AST 再次求值並回傳結果
@@ -2333,18 +2352,17 @@ private:
             throw EvalError(no_return_value, "", str_node);
         }
 
-        if (evaluated_str->is_atom && evaluated_str->token.type == String) {
+        if (evaluated_str->is_atom && (evaluated_str->token.type == String || evaluated_str->token.type == ErrorToken)) {
             string str_val = get<string>(evaluated_str->token.value);
-            // 去掉字串前後的引號再輸出
             if (str_val.length() >= 2 && str_val.front() == '"' && str_val.back() == '"') {
                 cout << str_val.substr(1, str_val.length() - 2);
             } else {
-                cout << str_val << endl; // 如果不符合字串格式，直接輸出原始值
+                cout << str_val; 
             }
         } else {
             throw EvalError(incorrect_arg_type, "display-string", evaluated_str);
         }
-        return nullptr; // display-string 為 void 操作
+        return nullptr;
     }
 
     // 處理 (newline)：在標準輸出印出換行符號
@@ -2451,37 +2469,6 @@ private:
         return nullptr;        // write 沒有實質的回傳值 (void)
     }
 
-    // 處理 (error-object exp)：將 exp 的求值結果轉換為錯誤物件
-    Node* HandleErrorObject(Node* exp) {
-        if (ListLength(exp) != 2) {
-            throw EvalError(incorrect_num_of_args, "error-object");
-            return nullptr;
-        }
-
-        Node* args = exp->right;
-        if (args == nullptr || args->is_atom) {
-            throw EvalError(incorrect_arg_type, "error-object", args);
-            return nullptr;
-        }
-
-        Node* err_node = args->left;
-        Node* evaluated_err = Eval(err_node);
-        
-        // 檢查要轉換的值是否有回傳值
-        if (evaluated_err == nullptr) {
-            throw EvalError(no_return_value, "", err_node);
-            return nullptr;
-        }
-
-        if (evaluated_err->is_atom && evaluated_err->token.type == String) {
-            string err_val = get<string>(evaluated_err->token.value);
-            return CreateErrorNode(err_val);
-        } else {
-            throw EvalError(incorrect_arg_type, "error-object", evaluated_err);
-            return nullptr;
-        }
-    }
-
     // 處理 (create-error-object exp)：將 exp 的求值結果轉換為錯誤物件
     Node* HandleCreateErrorObject(Node* exp) {
         if (ListLength(exp) != 2) {
@@ -2541,8 +2528,7 @@ public:
         special_forms[15] = "symbol->string";
         special_forms[16] = "number->string";
         special_forms[17] = "write";
-        special_forms[18] = "error-object";
-        special_forms[19] = "create-error-object";
+        special_forms[18] = "create-error-object";
         
         for (string p : prims) {
             curr_env->Define(p, CreatePrimitiveNode(p));
@@ -2600,7 +2586,6 @@ public:
                 if (op == "symbol->string") return HandleSymboltoString(node);
                 if (op == "number->string") return HandleNumbertoString(node);
                 if (op == "write") return HandleWrite(node);
-                if (op == "error-object?") return HandleErrorObject(node);
                 if (op == "create-error-object") return HandleCreateErrorObject(node);
             }
 
@@ -2629,7 +2614,8 @@ public:
                 if (op_name == "not" || op_name == "car" || op_name == "cdr" || 
                     op_name == "pair?" || op_name == "null?" || op_name == "integer?" || 
                     op_name == "real?" || op_name == "number?" || op_name == "symbol?" || 
-                    op_name == "string?" || op_name == "boolean?" || op_name == "atom?"  || op_name == "list?") {
+                    op_name == "string?" || op_name == "boolean?" || op_name == "atom?"  || op_name == "list?" || 
+                    op_name == "error-object?" || op_name == "verbose") {
                     if (arg_count != 1) throw EvalError(incorrect_num_of_args, op_name);
                 } else if (op_name == "cons" || op_name == "eqv?" || op_name == "equal?") {
                     if (arg_count != 2) throw EvalError(incorrect_num_of_args, op_name);
@@ -2637,6 +2623,8 @@ public:
                     op_name == "=" || op_name == "<" || op_name == ">" || op_name == "<=" || op_name == ">=" || 
                     op_name == "string-append" || op_name == "string>?" || op_name == "string<?" || op_name == "string=?") {
                     if (arg_count < 2) throw EvalError(incorrect_num_of_args, op_name);
+                } else if (op_name == "verbose?") {
+                    if (arg_count != 0) throw EvalError(incorrect_num_of_args, op_name);
                 }
             } else if (evaluated_op->token.type == Closure) {
                 int param_count = ListLength(evaluated_op->closure->params);
@@ -2749,7 +2737,6 @@ int main() {
             
             // 處理 (exit)
             if (IsExit(root)) {
-                FreeTree(root);
                 cout << "\nThanks for using OurScheme!\n";
                 break;
             }
@@ -2776,14 +2763,12 @@ int main() {
 
                 // 列印樹狀結構
                 PrintSExp(eval_result, 0);
-                FreeTree(root, evaluator.define_node);
             } catch (EvalError& e) {
                 EvalErrorHandler(e);
             }
         } catch (ParseError& e) {
             // 捕捉各種剖析錯誤並印出相應訊息
             ParseErrorHandler(e);
-            FreeTree(root);
             if (e.type == no_more_input) {
                 break;
             } else if (e.type == no_closing_quote || e.type == unexpected_token_atom || e.type == unexpected_token_paren) {
