@@ -1,0 +1,942 @@
+﻿Welcome to OurScheme!
+
+> a defined
+
+> "=============== Problem 4 viewable case ================="
+
+> environment cleaned
+
+> cadr defined
+
+> caddr defined
+
+> caar defined
+
+> caadr defined
+
+> caaddr defined
+
+> % defined
+
+> $%%% defined
+
+> KeyPair defined
+
+> RealKey defined
+
+> ListAppend defined
+
+> $ListAppend defined
+
+> ListLength defined
+
+> $ListLength defined
+
+> NthElementOf defined
+
+> $NthElementOf defined
+
+> WithNthElementOfListReplaced defined
+
+> $WithNthElementOfListReplaced defined
+
+> DivisibleBy defined
+
+> PrintListOfStringsAsSentence defined
+
+> PrintListOfSymbolsAsSentence defined
+
+> PrintListOfSymbolsStringsAsSentence defined
+
+> PrintListOfSymbolsNumbersStringsAsSentence defined
+
+> @size@ defined
+
+> @price@ defined
+
+> @quality@ defined
+
+> ResetTransactionState defined
+
+> ProductIndex defined
+
+> TransactionState defined
+
+> Top? defined
+
+> Bottom? defined
+
+> TopPrice? defined
+
+> BottomPrice? defined
+
+> TopSize? defined
+
+> BottomSize? defined
+
+> TopQuality? defined
+
+> BottomQuality? defined
+
+> Downgrade defined
+
+> Upgrade defined
+
+> DowngradeSize defined
+
+> DowngradePrice defined
+
+> DowngradeQuality defined
+
+> UpgradeSize defined
+
+> UpgradePrice defined
+
+> UpgradeQuality defined
+
+> Abs defined
+
+> PriceTag defined
+
+> ExampleExpertise defined
+
+> $expertise-DB defined
+
+> RuleSetOf defined
+
+> $RuleSetOfFrom defined
+
+> WithNthRuleReplaced defined
+
+> Rule defined
+
+> DefineExpertise defined
+
+> $AddToExpertiseDB defined
+
+> $IndexOfExpertiseEntry defined
+
+> ruleList-01 defined
+
+> ERROR (unbound symbol) : verbose?
+
+> rule-139 defined
+
+> ERROR (unbound symbol) : verbose?
+
+> ERROR (unbound symbol) : verbose?
+
+> ListExpertiseNames defined
+
+> $ListExpertiseNames defined
+
+> GetNotYetUsedKeyFromUser defined
+
+> DoDefineCondition defined
+
+> DoDefineAction defined
+
+> GetNotYetUsedExpertiseNameFromUser defined
+
+> NameUsedInExpertiseDB? defined
+
+> $NameUsedInExpertiseDB? defined
+
+> DoDefineExpertiseFromDB defined
+
+> DoReplaceRuleOfExpertiseWithNewlyComposedRuleUsingDB defined
+
+> GetRuleSetFromDB defined
+
+> GetConditionFromDB defined
+
+> GetActionListFromDB defined
+
+> DoSearchCondition defined
+
+> DoSearchAction defined
+
+> DoUpdateCondition defined
+
+> DoUpdateAction defined
+
+> DoRemoveCondition defined
+
+> DoRemoveAction defined
+
+> DoListConditions defined
+
+> DoListActions defined
+
+> DoListConditionKeys defined
+
+> DoListActionKeys defined
+
+> ExpertSystemShell defined
+
+> DoDefineNewExpertise defined
+
+> DoRemoveExpertise defined
+
+> $WithExpertiseRemoved defined
+
+> ListRuleSet defined
+
+> DoReplaceRuleSet defined
+
+> $ReplaceRuleSet defined
+
+> DoReplaceRuleOfRuleSet defined
+
+> $ReplaceRuleOfRuleSet defined
+
+> nil
+
+> ListConditionBST defined
+
+> ListActionBST defined
+
+> ClearConditionDB defined
+
+> ClearActionDB defined
+
+> ListConditionDB defined
+
+> ListActionDB defined
+
+> ListDB-BST defined
+
+> $ListDB-BST defined
+
+> KeyUsedInConditionDB? defined
+
+> KeyUsedInActionDB? defined
+
+> KeyUsedInBST? defined
+
+> $KeyUsedInBST? defined
+
+> ListKeysOfConditionDB defined
+
+> ListKeysOfActionDB defined
+
+> ListKeysOfBST defined
+
+> $ListKeysOfBST defined
+
+> SearchConditionDB defined
+
+> SearchActionDB defined
+
+> SearchBST defined
+
+> $SearchBST defined
+
+> AddToConditionDB defined
+
+> AddToActionDB defined
+
+> AddToBST defined
+
+> $AddToBST defined
+
+> UpdateConditionDB defined
+
+> UpdateActionDB defined
+
+> UpdateBST defined
+
+> $UpdateBST defined
+
+> FindMaxBSTnode defined
+
+> $FindMaxBSTnode defined
+
+> FindMinBSTnode defined
+
+> $FindMinBSTnode defined
+
+> RemoveFromConditionDB defined
+
+> RemoveFromActionDB defined
+
+> RemoveFromBST defined
+
+> $RemoveFromBST defined
+
+> nil
+
+> ERROR (car with incorrect argument type) : %bst
+
+> ERROR (car with incorrect argument type) : %bst
+
+> ERROR (car with incorrect argument type) : %bst
+
+> nil
+
+> nil
+
+> nil
+
+> nil
+
+> ERROR (car with incorrect argument type) : nil
+
+> ERROR (car with incorrect argument type) : nil
+
+> ERROR (car with incorrect argument type) : nil
+
+> nil
+
+> ------------------ Available choices are ------------------
+1 or DefineExpertise , 2 or RemoveExpertise , 3 or ListExpertiseNames ,
+4 or ListRuleSet , 5 or ReplaceRuleSet , 6 or ReplaceRuleOfRuleSet ,
+---
+7 or DefineCondition , 8 or DefineActionList ,
+9 or UpdateCondition , 10 or UpdateActionList ,
+11 or RemoveCondition , 12 or RemoveActionList ,
+13 or ListConditionKeys , 14 or ListActionListKeys ,
+15 or SearchCondition , 16 or SearchActionList ,
+17 or ListAllConditions , 18 or ListAllActionLists ,
+19 or DefineExpertiseFromDB, 20 or ReplaceRuleOfExpertiseWithNewlyComposedRuleUsingDB
+21 or Quit or quit
+Please enter the number (or item-name) of your choice > ERROR (car with incorrect argument type) : $KeyUsedInBST?
+
+> 14
+
+> 15
+
+> 661
+
+> 16
+
+> 473
+
+> 17
+
+> 18
+
+> 3
+
+> 4
+
+> ERROR (unbound symbol) : NoSuchExpertise
+
+> 4
+
+> #<procedure ExampleExpertise>
+
+> 4
+
+> ERROR (unbound symbol) : Expertise-01
+
+> ERROR (unbound symbol) : quit
+
+> "quality : 3 size : 2 price : 3 ProductIndex : 5"
+
+> ERROR (unbound symbol) : Expertise-01
+
+> ERROR (unbound symbol) : Expertise-01
+
+> ------------------ Available choices are ------------------
+1 or DefineExpertise , 2 or RemoveExpertise , 3 or ListExpertiseNames ,
+4 or ListRuleSet , 5 or ReplaceRuleSet , 6 or ReplaceRuleOfRuleSet ,
+---
+7 or DefineCondition , 8 or DefineActionList ,
+9 or UpdateCondition , 10 or UpdateActionList ,
+11 or RemoveCondition , 12 or RemoveActionList ,
+13 or ListConditionKeys , 14 or ListActionListKeys ,
+15 or SearchCondition , 16 or SearchActionList ,
+17 or ListAllConditions , 18 or ListAllActionLists ,
+19 or DefineExpertiseFromDB, 20 or ReplaceRuleOfExpertiseWithNewlyComposedRuleUsingDB
+21 or Quit or quit
+Please enter the number (or item-name) of your choice > Key (at least 5 digits) associated with the to-be-defined-item > ERROR (car with incorrect argument type) : %bst
+
+> ERROR (unbound symbol) : n
+
+> 7
+
+> 5478952
+
+> ERROR (unbound symbol) : n
+
+> 7
+
+> 9157342
+
+> ERROR (unbound symbol) : n
+
+> 7
+
+> 1749826
+
+> ERROR (unbound symbol) : else
+
+> 7
+
+> 4865217
+
+> ERROR (unbound symbol) : n
+
+> 13
+
+> 19
+
+> ERROR (unbound symbol) : TryTrySee
+
+> ERROR (unbound symbol) : y
+
+> 94
+
+> 282
+
+> ERROR (unbound symbol) : y
+
+> 189
+
+> 94
+
+> ERROR (unbound symbol) : y
+
+> 362
+
+> 189
+
+> ERROR (unbound symbol) : n
+
+> ERROR (unbound symbol) : quit
+
+> ( 13
+  RemoveCondition
+)
+
+> nil
+
+> ERROR (unbound symbol) : TryTrySee
+
+> ( 13
+  RemoveCondition
+)
+
+> nil
+
+> ERROR (unbound symbol) : TryTrySee
+
+> ( 13
+  RemoveCondition
+)
+
+> nil
+
+> ERROR (unbound symbol) : TryTrySee
+
+> ( 13
+  RemoveCondition
+)
+
+> nil
+
+> ------------------ Available choices are ------------------
+1 or DefineExpertise , 2 or RemoveExpertise , 3 or ListExpertiseNames ,
+4 or ListRuleSet , 5 or ReplaceRuleSet , 6 or ReplaceRuleOfRuleSet ,
+---
+7 or DefineCondition , 8 or DefineActionList ,
+9 or UpdateCondition , 10 or UpdateActionList ,
+11 or RemoveCondition , 12 or RemoveActionList ,
+13 or ListConditionKeys , 14 or ListActionListKeys ,
+15 or SearchCondition , 16 or SearchActionList ,
+17 or ListAllConditions , 18 or ListAllActionLists ,
+19 or DefineExpertiseFromDB, 20 or ReplaceRuleOfExpertiseWithNewlyComposedRuleUsingDB
+21 or Quit or quit
+Please enter the number (or item-name) of your choice > Expertise-03
+Expertise-02
+Expertise-01
+ExampleExpertise
+------------------ Available choices are ------------------
+1 or DefineExpertise , 2 or RemoveExpertise , 3 or ListExpertiseNames ,
+4 or ListRuleSet , 5 or ReplaceRuleSet , 6 or ReplaceRuleOfRuleSet ,
+---
+7 or DefineCondition , 8 or DefineActionList ,
+9 or UpdateCondition , 10 or UpdateActionList ,
+11 or RemoveCondition , 12 or RemoveActionList ,
+13 or ListConditionKeys , 14 or ListActionListKeys ,
+15 or SearchCondition , 16 or SearchActionList ,
+17 or ListAllConditions , 18 or ListAllActionLists ,
+19 or DefineExpertiseFromDB, 20 or ReplaceRuleOfExpertiseWithNewlyComposedRuleUsingDB
+21 or Quit or quit
+Please enter the number (or item-name) of your choice > Please give the name of the expertise > "TryTrySee not found in expertise-DB"
+
+------------------ Available choices are ------------------
+1 or DefineExpertise , 2 or RemoveExpertise , 3 or ListExpertiseNames ,
+4 or ListRuleSet , 5 or ReplaceRuleSet , 6 or ReplaceRuleOfRuleSet ,
+---
+7 or DefineCondition , 8 or DefineActionList ,
+9 or UpdateCondition , 10 or UpdateActionList ,
+11 or RemoveCondition , 12 or RemoveActionList ,
+13 or ListConditionKeys , 14 or ListActionListKeys ,
+15 or SearchCondition , 16 or SearchActionList ,
+17 or ListAllConditions , 18 or ListAllActionLists ,
+19 or DefineExpertiseFromDB, 20 or ReplaceRuleOfExpertiseWithNewlyComposedRuleUsingDB
+21 or Quit or quit
+Please enter the number (or item-name) of your choice > Key (at least 5 digits) associated with the to-be-defined-item > ERROR (car with incorrect argument type) : nil
+
+> ERROR (unbound symbol) : n
+
+> 8
+
+> 398574
+
+> ERROR (unbound symbol) : n
+
+> 8
+
+> 1124365
+
+> ERROR (unbound symbol) : n
+
+> 8
+
+> 9258674
+
+> ERROR (unbound symbol) : n
+
+> 8
+
+> 4545125
+
+> ERROR (unbound symbol) : n
+
+> 8
+
+> 8416872
+
+> ERROR (unbound symbol) : n
+
+> 8
+
+> 65623565
+
+> 5545587
+
+> ERROR (unbound symbol) : n
+
+> 8
+
+> 2653485
+
+> ERROR (unbound symbol) : n
+
+> 14
+
+> 19
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : y
+
+> 156
+
+> 231
+
+> ERROR (unbound symbol) : y
+
+> 128
+
+> 245
+
+> ERROR (unbound symbol) : y
+
+> 323
+
+> 251
+
+> ERROR (unbound symbol) : y
+
+> 362
+
+> 83
+
+> ERROR (unbound symbol) : n
+
+> 19
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : y
+
+> 373
+
+> 157
+
+> ERROR (unbound symbol) : y
+
+> 156
+
+> 40
+
+> ERROR (unbound symbol) : y
+
+> 128
+
+> 59
+
+> ERROR (unbound symbol) : y
+
+> 362
+
+> 106
+
+> ERROR (unbound symbol) : n
+
+> ERROR (unbound symbol) : quit
+
+> #t
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ------------------ Available choices are ------------------
+1 or DefineExpertise , 2 or RemoveExpertise , 3 or ListExpertiseNames ,
+4 or ListRuleSet , 5 or ReplaceRuleSet , 6 or ReplaceRuleOfRuleSet ,
+---
+7 or DefineCondition , 8 or DefineActionList ,
+9 or UpdateCondition , 10 or UpdateActionList ,
+11 or RemoveCondition , 12 or RemoveActionList ,
+13 or ListConditionKeys , 14 or ListActionListKeys ,
+15 or SearchCondition , 16 or SearchActionList ,
+17 or ListAllConditions , 18 or ListAllActionLists ,
+19 or DefineExpertiseFromDB, 20 or ReplaceRuleOfExpertiseWithNewlyComposedRuleUsingDB
+21 or Quit or quit
+Please enter the number (or item-name) of your choice > Key of the condition to remove > ERROR (car with incorrect argument type) : %bst
+
+> 11
+
+> 189
+
+> 13
+
+> 12
+
+> 231
+
+> 12
+
+> 251
+
+> 12
+
+> 40
+
+> 14
+
+> 15
+
+> 9157342
+
+> 15
+
+> 5478952
+
+> 16
+
+> 78945
+
+> 16
+
+> 1124365
+
+> 16
+
+> 4545125
+
+> ERROR (unbound symbol) : quit
+
+> #t
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> #t
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ++ defined
+
+> ------------------ Available choices are ------------------
+1 or DefineExpertise , 2 or RemoveExpertise , 3 or ListExpertiseNames ,
+4 or ListRuleSet , 5 or ReplaceRuleSet , 6 or ReplaceRuleOfRuleSet ,
+---
+7 or DefineCondition , 8 or DefineActionList ,
+9 or UpdateCondition , 10 or UpdateActionList ,
+11 or RemoveCondition , 12 or RemoveActionList ,
+13 or ListConditionKeys , 14 or ListActionListKeys ,
+15 or SearchCondition , 16 or SearchActionList ,
+17 or ListAllConditions , 18 or ListAllActionLists ,
+19 or DefineExpertiseFromDB, 20 or ReplaceRuleOfExpertiseWithNewlyComposedRuleUsingDB
+21 or Quit or quit
+Please enter the number (or item-name) of your choice > Key (at least 5 digits) associated with the to-be-defined-item > ERROR (car with incorrect argument type) : nil
+
+> ERROR (unbound symbol) : n
+
+> 20
+
+> ERROR (unbound symbol) : OverSpent
+
+> 4
+
+> 362
+
+> 164
+
+> ERROR (unbound symbol) : quit
+
+> #t
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> #t
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : Exaggerated
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> ERROR (unbound symbol) : OverSpent
+
+> 
+Thanks for using OurScheme!
